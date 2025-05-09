@@ -6,7 +6,7 @@ class PINN_NN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(PINN_NN, self).__init__()
         self.layers = nn.ModuleList()
-        self.layer_num = 8
+        self.layer_num = 5
         for i in range(self.layer_num):
             if i == 0:
                 self.layers.append(nn.Linear(input_size, hidden_size))
@@ -31,6 +31,4 @@ class CustomPINN_Green2D(nn.Module):
         self.psi = PINN_NN(input_size=dims, hidden_size=hidden_size, output_size=output_size)
 
     def forward(self, x, y):
-        x= torch.tensor(x)
-        y = torch.tensor(y)
         return self.phi(x,y) * torch.log(torch.abs(x-y).sum(-1)) + self.psi(x,y)

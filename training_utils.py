@@ -3,7 +3,7 @@ import torch
 
 class TrainingDataset(Dataset):
     def __init__(self):
-        self.data = torch.load('uvalues_train.pt')
+        self.data = torch.load('./data/chebyshev_uvalues_w_bc.pt')
         self.coordinates = self.data["coordinates"]
         self.values = self.data["values"]
         self.length = len(self.coordinates)
@@ -19,7 +19,7 @@ class TrainingDataset(Dataset):
     
 class TestDataset(Dataset):
     def __init__(self):
-        self.data = torch.load('uvalues_test.pt')
+        self.data = torch.load('./data/random_uvalues_test.pt')
         self.coordinates = self.data["coordinates"]
         self.values = self.data["values"]
         self.length = len(self.data["coordinates"])
@@ -40,7 +40,7 @@ def train(model, optimizer, dataloader, loss_fn, f_source_term, domain, schedule
     current_num = 0
     for batch, (coordinate, value) in enumerate(dataloader):
         # Compute prediction and loss
-        loss = loss_fn(greens_function_approx=model, f_source_term=f_source_term, coordinate=coordinate, domain=domain,u=value)
+        loss = loss_fn(greens_function_approx=model, f_source_term=f_source_term, coordinates=coordinate, domain=domain,u=value)
         # Backpropagation
         optimizer.zero_grad()
         loss.backward()
@@ -58,9 +58,9 @@ def test(dataloader, model, loss_fn, f_source_term, domain):
     num_batches = len(dataloader)
     model.eval()
     test_loss = 0
-    with torch.no_grad():
-        for coordinate, value in dataloader:
-            test_loss +=  loss_fn(greens_function_approx=model, f_source_term=f_source_term, coordinate=coordinate, domain=domain,u=value).item()
+    # with torch.no_grad():
+    for coordinate, value in dataloader:
+        test_loss +=  loss_fn(greens_function_approx=model, f_source_term=f_source_term, coordinates=coordinate, domain=domain,u=value).item()
 
     print(f"Avg Test loss per sample: {test_loss /size:>8f} , Avg Test loss per batch: {test_loss /num_batches:>8f} \n", end="")
     return test_loss

@@ -2,8 +2,6 @@ import math
 from matplotlib import pyplot as plt
 import torch
 
-from data_generation import sample_mesh_points
-from pde_utils import test_source_term
 def sample_chebyshev_points_2(domain, num_points: tuple):
     x_num, y_num = num_points
     x_min, x_max, y_min, y_max = domain
@@ -81,12 +79,12 @@ def cheb_2d_impl(eval_points, values, domain):
         res2[i] = cheb_1d_impl(eval_x[i:i+1], res1[:, i], domain[0:2])
     return res2
 
-def plot_points(points, values = None, cmap='viridis'):
+def plot_points(points, values = None, cmap='viridis', title=""):
     if values is not None:
         values = values.detach().numpy()
     scatter = plt.scatter(points[:, 0].detach().numpy(), points[:,1].detach().numpy(), c=values, cmap=cmap)
     plt.colorbar(scatter)
-
+    plt.title(title)
     plt.show()
 
 def plot_multiple_points(points_list, values_list, title_list = None, cmap_list = None):

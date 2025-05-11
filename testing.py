@@ -1,13 +1,13 @@
 from chebyshev import cheb_2d_impl, plot_points, sample_chebyshev_points_2
-from data_generation import sample_mesh_points
-from loss import CustomLoss
+from data_generation_utils import sample_mesh_points, separate_collocation_boundary_points
+from loss import CustomDataPredLoss
 import torch
 from pde_utils import get_u_evaluation_func, greens_function_poisson_eq_2d, test_source_term
 
 
-domain = (-50,50,-50,50) 
-# domain = (0,1,0,1)
-eval_points = sample_mesh_points(domain[0], domain[1], domain[2], domain[3], 400)
+# domain = (-50,50,-50,50) 
+domain = (0,1,0,1)
+eval_points = sample_mesh_points(domain, 400)
 
 #-----------------------------------------------------------------------
 
@@ -26,24 +26,31 @@ eval_points = sample_mesh_points(domain[0], domain[1], domain[2], domain[3], 400
 
 #-----------------------------------------------------------------------
 
-##Investigating the effect of psi and phi on the structure of u
-eval_points = sample_mesh_points(domain[0], domain[1], domain[2], domain[3], 1000)
-def custom_greens_function(x, y):
-    def phi(x, y):
-        val = torch.sum(x+y, -1)
-        val = torch.abs((x*y).sum(-1))
-        return val
+# ##Investigating the effect of psi and phi on the structure of u
+# eval_points = sample_mesh_points(domain[0], domain[1], domain[2], domain[3], 1000)
+# def custom_greens_function(x, y):
+#     def phi(x, y):
+#         val = torch.sum(x+y, -1)
+#         val = torch.abs((x*y).sum(-1))
+#         return val
     
-    def psi(x, y):
-        val =  torch.sum(x-y, -1)
-        val = (x*y).sum(-1)
-        return val
+#     def psi(x, y):
+#         val =  torch.sum(x-y, -1)
+#         val = (x*y).sum(-1)
+#         return val
     
-    return phi(x,y) * torch.log(torch.abs(x-y).sum(-1)) + psi(x,y)
+#     return phi(x,y) * torch.log(torch.abs(x-y).sum(-1)) + psi(x,y)
 
-values = torch.zeros(len(eval_points))
-eval_fn = get_u_evaluation_func(custom_greens_function, False)
-for i, point in enumerate(eval_points):
-    values[i] = eval_fn(point, domain=domain)
+# values = torch.zeros(len(eval_points))
+# eval_fn = get_u_evaluation_func(greens_function=custom_greens_function, source_term=test_source_term, integrate_bool=False)
+# for i, point in enumerate(eval_points):
+#     values[i] = eval_fn(point, domain=domain)
 
-plot_points(eval_points, values=values)
+# plot_points(eval_points, values=values)
+
+
+#-----------------------------------------------------------------------
+
+cheb_points = sample_chebyshev_points_2(domain, (20, 20)).view(400, 2)
+col, bnd = separate_collocation_boundary_points(domain, cheb_points)
+print(col.shape, bnd.shape)

@@ -9,11 +9,14 @@ class PINN_NN(nn.Module):
         self.layer_num = 5
         for i in range(self.layer_num):
             if i == 0:
-                self.layers.append(nn.Linear(input_size, hidden_size))
+                lin = nn.Linear(input_size, hidden_size)
+                self.layers.append(lin)
             elif i == self.layer_num-1:
-                self.layers.append(nn.Linear(hidden_size, output_size))
+                lin = nn.Linear(hidden_size, output_size)
+                self.layers.append(lin)
             else:
-                self.layers.append(nn.Linear(hidden_size, hidden_size))
+                lin = nn.Linear(hidden_size, hidden_size)
+                self.layers.append(lin)
                 
 
     def forward(self, x, y):

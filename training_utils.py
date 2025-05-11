@@ -1,25 +1,47 @@
 from torch.utils.data import Dataset
 import torch
 
-class TrainingDataset(Dataset):
-    def __init__(self):
-        self.data = torch.load('./data/chebyshev_uvalues_w_bc.pt')
-        self.coordinates = self.data["coordinates"]
-        self.values = self.data["values"]
-        self.length = len(self.coordinates)
-        # load the images from file
+class Dataset:
+    class CollocationTrainingDataset(Dataset):
+        def __init__(self, file_path: str):
+            self.data = torch.load(file_path)
+            self.coordinates = self.data["collocation_data"]["coordinates"]
+            self.values = self.data["collocation_data"]["values"]
+            self.length = len(self.coordinates)
+            # load the images from file
 
-    def __len__(self):
-        # return total dataset size
-        return self.length
+        def __len__(self):
+            # return total dataset size
+            return self.length
 
-    def __getitem__(self, index):
-        # write your code to return each batch element
-        return self.coordinates[index], self.values[index]
+        def __getitem__(self, index):
+            # write your code to return each batch element
+            return self.coordinates[index], self.values[index]
+    
+    class BoundaryTrainingDataset(Dataset):
+        def __init__(self, file_path: str):
+            self.data = torch.load(file_path)
+            self.coordinates = self.data["boundary_data"]["coordinates"]
+            self.values = self.data["boundary_data"]["values"]
+            self.length = len(self.coordinates)
+            # load the images from file
+
+        def __len__(self):
+            # return total dataset size
+            return self.length
+
+        def __getitem__(self, index):
+            # write your code to return each batch element
+            return self.coordinates[index], self.values[index]
+        
+    def __init__(self, file_path:str):
+        self.file_path= file_path
+        self.collocation_dataset = self.CollocationTrainingDataset(file_path=file_path)
+        self.boundary_dataset = self.BoundaryTrainingDataset(file_path=file_path)
     
 class TestDataset(Dataset):
-    def __init__(self):
-        self.data = torch.load('./data/random_uvalues_test.pt')
+    def __init__(self, file_path):
+        self.data = torch.load(file_path)
         self.coordinates = self.data["coordinates"]
         self.values = self.data["values"]
         self.length = len(self.data["coordinates"])
@@ -51,7 +73,7 @@ def train(model, optimizer, dataloader, loss_fn, f_source_term, domain, schedule
         loss = loss.item()
         total_loss += loss
         current_num= len(coordinate) + current_num
-        print(f"\rloss: {loss:>7f}  [{current_num:>5d}/{size:>5d}] \n", end="")
+        print(f"\rAvg Train Loss per sample: {loss:>7f}  [{current_num:>5d}/{size:>5d}] \n", end="")
 
 def test(dataloader, model, loss_fn, f_source_term, domain):
     size = len(dataloader.dataset)
@@ -60,9 +82,9 @@ def test(dataloader, model, loss_fn, f_source_term, domain):
     test_loss = 0
     # with torch.no_grad():
     for coordinate, value in dataloader:
-        test_loss +=  loss_fn(greens_function_approx=model, f_source_term=f_source_term, coordinates=coordinate, domain=domain,u=value).item()
+        test_loss +=  loss_fn(greens_function_approx=model, f_source_term=f_source_term, coordinates=coordinate, domain=domain,u=value).item() * len(coordinate)
 
-    print(f"Avg Test loss per sample: {test_loss /size:>8f} , Avg Test loss per batch: {test_loss /num_batches:>8f} \n", end="")
+    print(f"Avg Test Loss per sample: {test_loss / size :>8f} \n", end="")
     return test_loss
 
 

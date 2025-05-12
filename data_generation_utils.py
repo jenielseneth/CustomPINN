@@ -8,21 +8,26 @@ import matplotlib.pyplot as plt
 
 def sample_mesh_points(domain, num_points, uniform: bool = False, boundary: bool = False):
     x_min, x_max, y_min, y_max = domain
+    if boundary:
+        half = num_points//2
+        x = torch.rand(half) * (x_max-x_min) + x_min
+        y = torch.rand(half) * (y_max-y_min) + y_min
+        results = []
+        for i, b in enumerate(domain):
+            j = i % 2
+            ind = half//2*j
+            b_tensor = torch.full((half//2,), b)
+            paired = torch.column_stack((b_tensor, y[ind:(ind+half//2)])) if i < 2 else torch.column_stack((x[ind:(ind+half//2)], b_tensor))
+            results.append(paired)
+        return torch.cat(results, dim=0)
     if not uniform:
-        x = torch.rand(num_points, requires_grad=True) * (x_max-x_min) + x_min
-        y = torch.rand(num_points, requires_grad=True) * (y_max-y_min) + y_min
-        if boundary:
-            results = []
-            for i, b in enumerate(domain):
-                b_tensor = torch.full_like(x, b)
-                paired = torch.column_stack((b_tensor, y)) if i < 2 else torch.column_stack((x, b_tensor))
-                results.append(paired)
-            return torch.cat(results, dim=0)
+        x = torch.rand(num_points) * (x_max-x_min) + x_min
+        y = torch.rand(num_points) * (y_max-y_min) + y_min
         return torch.vstack((x, y)).T
     else:
         spacing = math.floor(math.sqrt(num_points))
-        x = torch.linspace(x_min, x_max, spacing, requires_grad=True)
-        y = torch.linspace(y_min, y_max, spacing, requires_grad=True)
+        x = torch.linspace(x_min, x_max, spacing)
+        y = torch.linspace(y_min, y_max, spacing)
         if boundary:
             results = []
             for i, b in enumerate(domain):

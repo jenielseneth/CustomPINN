@@ -10,7 +10,7 @@ domain = (0,1,0,1)
 model = CustomPINN_Green2D(4, 1, 32)
 model.load_state_dict(torch.load(dir + "model.pth"))
 model.eval()
-points = torch.load(dir + "uvalues_test.pt")
+points = torch.load(dir + "collocation_test.pt")
 coordinates = points["coordinates"]
 values = points["values"]
 filter = torch.where(values != torch.inf)[0]

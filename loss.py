@@ -1,10 +1,8 @@
 import torch
 from tqdm import tqdm
 
-from chebyshev import plot_multiple_points, plot_points
-from data_generation_utils import sample_mesh_points
-from torchviz import make_dot
-from pde_utils import get_u_evaluation_func
+from plot_utils import plot_multiple_points, plot_points
+from pde_utils import evaluate_model
 
 class relMSELoss(object):
     def __init__(self):
@@ -50,13 +48,14 @@ class CustomDataPredLoss(object):
 
     def __call__(self, greens_function_approx, f_source_term, coordinates, domain, u, *args, **kwargs):
         u_pred = torch.zeros_like(u)
-        uniform_mesh=sample_mesh_points(domain, self.num_eval_points, uniform=True)
-        for c in range(len(coordinates)):
-            filter = torch.where((uniform_mesh - coordinates[c]).pow(2).sum(1).sqrt() > 1e-5)[0]
-            filtered_mesh = uniform_mesh[filter]
-            source = f_source_term(filtered_mesh[:,0],filtered_mesh[:,1])
-            pred = torch.sum(greens_function_approx(filtered_mesh, torch.zeros_like(filtered_mesh)+coordinates[c]) * source)
-            u_pred[c] = pred
+        
+        u_pred = evaluate_model(model=greens_function_approx, source_term=f_source_term, coordinates=coordinates, domain=domain, chebyshev=True)
+        # for c in range(len(coordinates)):
+            # filter = torch.where((mesh - coordinates[c]).pow(2).sum(1).sqrt() > 1e-5)[0]
+            # filtered_mesh = mesh[filter]
+            # source = f_source_term(filtered_mesh[:,0],filtered_mesh[:,1])
+            # pred = torch.sum(greens_function_approx(filtered_mesh, torch.zeros_like(filtered_mesh)+coordinates[c]) * source)
+            # u_pred[c] = pred
         diff = torch.nn.functional.mse_loss(u_pred, u)
-        return diff / len(u_pred)
+        return diff
     

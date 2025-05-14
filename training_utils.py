@@ -2,6 +2,7 @@ import math
 from torch.utils.data import Dataset, DataLoader
 import torch
 import random
+import os
 
 from loss import CustomDataPredLoss
 
@@ -24,8 +25,8 @@ class DatasetWrapper(Dataset):
     
 
 class WholeDatasetWrapper(Dataset):
-    def __init__(self, colocation_file_path: str, boundary_file_path: str):
-        self.col_data = torch.load(colocation_file_path)
+    def __init__(self, collocation_file_path: str, boundary_file_path: str):
+        self.col_data = torch.load(collocation_file_path)
         self.bnd_data = torch.load(boundary_file_path)
         self.c_coordinates = self.col_data["coordinates"]
         self.c_values = self.col_data["values"]
@@ -34,8 +35,6 @@ class WholeDatasetWrapper(Dataset):
         self.coordinates = torch.cat((self.c_coordinates, self.b_coordinates))
         self.values = torch.cat((self.c_values, self.b_values))
         self.length = len(self.coordinates)
-        print(self.length)
-        # load the images from file
 
     def __len__(self):
         # return total dataset size
@@ -44,23 +43,38 @@ class WholeDatasetWrapper(Dataset):
     def __getitem__(self, index):
         # write your code to return each batch element
         return self.coordinates[index], self.values[index]
-class BoundaryDataloaderWrapper:
-    def __init__(self, file_path: str, batch_size):
-        self.data = torch.load(file_path)
-        shuffle_ind = torch.randperm(len(self.data["coordinates"]))
-        self.batch_size = batch_size
-        self.coordinates = self.data["coordinates"][shuffle_ind]
-        self.values = self.data["values"][shuffle_ind]
-        self.length = math.ceil(len(self.data["coordinates"])/self.batch_size)
-        self.split_coordinates = torch.split(self.coordinates, self.length)
-        self.split_values = torch.split(self.values, self.length)
-    
+
+class MultiDatasetWrapper(Dataset):
+    def fetch_dataset(self, file_path: str, colocation_file_path: str, boundary_file_path: str):
+        col_data = torch.load(file_path + colocation_file_path)
+        bnd_data = torch.load(file_path + boundary_file_path)
+        c_coordinates = col_data["coordinates"]
+        c_values = col_data["values"]
+        b_coordinates = bnd_data["coordinates"]
+        b_values = bnd_data["values"]
+        coordinates = torch.cat((c_coordinates, b_coordinates))
+        values = torch.cat((c_values, b_values))
+        return coordinates, values
+
+    def __init__(self, data_file_path: str, col_data_file_name: str, bnd_data_file_name: str):
+        subdirectories = [data_file_path + a + "/" for a in os.listdir(data_file_path) if os.path.isdir(data_file_path + a)]
+        c, v = [], []
+        for subdir in subdirectories:
+            coordinates, values = self.fetch_dataset(subdir, col_data_file_name, bnd_data_file_name)
+            c.append(coordinates)
+            v.append(values)
+        self.coordinates = torch.cat(c)
+        self.values = torch.cat(v)
+        self.length = len(self.coordinates)
+
     def __len__(self):
+        # return total dataset size
         return self.length
 
     def __getitem__(self, index):
         # write your code to return each batch element
-        return self.split_coordinates[index], self.split_values[index]
+        return self.coordinates[index], self.values[index]
+
 
 def train(model, optimizer, dataloader: DataLoader, loss_fn: CustomDataPredLoss, f_source_term, domain, scheduler = None):
     size = len(dataloader.dataset)
@@ -86,9 +100,9 @@ def test(dataloader, model, loss_fn: CustomDataPredLoss,  f_source_term, domain)
     test_loss = 0
     with torch.no_grad():
         for coordinate, value in dataloader:
-            test_loss +=  loss_fn(greens_function_approx=model, f_source_term=f_source_term, coordinates=coordinate, domain=domain,u=value).item() * len(coordinate)
+            test_loss += loss_fn(greens_function_approx=model, f_source_term=f_source_term, coordinates=coordinate, domain=domain,u=value).item()
 
-    print(f"Avg Test Loss per sample: {test_loss / size :>8f} \n", end="")
+    print(f"Avg Test Loss per sample: {test_loss :>8f} \n", end="")
     return test_loss
 
 

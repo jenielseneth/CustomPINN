@@ -1,24 +1,46 @@
 
 
 import torch
-from chebyshev import plot_multiple_points, plot_points
+from plot_utils import plot_multiple_points, plot_points
 from data_generation_utils import generate_points
-from pde_utils import get_u_evaluation_func, greens_function_poisson_eq_2d
-import logging
+import sympy
 import os
 
+# x_sym, y_sym = sympy.symbols("x y")
+# u_func = x_sym ** 2 + y_sym ** 2
+# a_func = -1
 
-def explicit_u_func_1(point, domain):
-    x, y = point
-    return 1 + x**2 + 2 * y**2
+# ##Calculate Source Term
+# u_func_x = sympy.diff(u_func, x_sym)
+# u_func_y = sympy.diff(u_func, y_sym)
+# a_func_x = sympy.diff(a_func, x_sym)
+# a_func_y = sympy.diff(a_func, y_sym)
+# u_func_xx = sympy.diff(u_func_x, x_sym)
+# u_func_yy = sympy.diff(u_func_y, y_sym)
+# f_func = a_func_x*u_func_x + a_func*u_func_xx + a_func_y*u_func_y + a_func*u_func_yy
+# print(type(u_func.subs([(x_sym, 0), (y_sym, 2.5)])))
+# assert False
 
-def source_term(x,y):
-    return -6
+def explicit_u_func_1(points):
+    '''
+    points: Tensor of n x m x ... x b x 2
+    '''
+    x, y = points[..., 0], points[..., 1]
+    return x**3 * y**3
+
+def source_term(points):
+    '''
+    points: Tensor of n x m x ... x b x 2
+    '''
+    x, y = points[..., 0], points[..., 1]
+    u_xx = 6* x * y**3
+    u_yy = 6* y * x**3
+    return -u_xx - u_yy
 
 if __name__ == "__main__":  
-    name = "manu_sol_1/"
-    function_str = "1 + x**2 + 2 * y**2"
-    source_term_str = "-6"
+    name = "manu_sol_2/"
+    function_str = "x**3 * y**3"
+    source_term_str = "-u_xx - u_yy"
     dir = "./data/" + name
     train_chebyshev = True
     if not os.path.exists(dir):

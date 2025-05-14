@@ -1,12 +1,13 @@
-from chebyshev import cheb_2d_impl, plot_points, sample_chebyshev_points_2
+from chebyshev import cheb_2d_impl, sample_chebyshev_points_2
 from data_generation_utils import sample_mesh_points, separate_collocation_boundary_points
 from loss import CustomDataPredLoss
 import torch
-from pde_utils import get_u_evaluation_func, greens_function_poisson_eq_2d, test_source_term
+from generate_data import source_term
+from pde_utils import evaluate_model, get_u_evaluation_func
 
 
 # domain = (-50,50,-50,50) 
-domain = (0,1,0,1)
+domain = (0,10,0,10)
 eval_points = sample_mesh_points(domain, 400)
 
 #-----------------------------------------------------------------------
@@ -27,30 +28,29 @@ eval_points = sample_mesh_points(domain, 400)
 #-----------------------------------------------------------------------
 
 # ##Investigating the effect of psi and phi on the structure of u
-# eval_points = sample_mesh_points(domain[0], domain[1], domain[2], domain[3], 1000)
+# eval_points = sample_mesh_points(domain, 1000)
 # def custom_greens_function(x, y):
 #     def phi(x, y):
 #         val = torch.sum(x+y, -1)
-#         val = torch.abs((x*y).sum(-1))
+#         # val = torch.abs((x*y).sum(-1))
+#         val = torch.sum(torch.cos(x)+torch.cos(y))
 #         return val
     
 #     def psi(x, y):
 #         val =  torch.sum(x-y, -1)
-#         val = (x*y).sum(-1)
+#         # val = (x+y).sum(-1)
+#         val = torch.sum(torch.sin(x)+torch.sin(y))
 #         return val
     
 #     return phi(x,y) * torch.log(torch.abs(x-y).sum(-1)) + psi(x,y)
 
-# values = torch.zeros(len(eval_points))
-# eval_fn = get_u_evaluation_func(greens_function=custom_greens_function, source_term=test_source_term, integrate_bool=False)
-# for i, point in enumerate(eval_points):
-#     values[i] = eval_fn(point, domain=domain)
+# values = evaluate_model(model=custom_greens_function, source_term=source_term, coordinates=eval_points, domain=domain, chebyshev=True)
 
 # plot_points(eval_points, values=values)
 
 
 #-----------------------------------------------------------------------
 
-cheb_points = sample_chebyshev_points_2(domain, (20, 20)).view(400, 2)
-col, bnd = separate_collocation_boundary_points(domain, cheb_points)
-print(col.shape, bnd.shape)
+# cheb_points = sample_chebyshev_points_2(domain, (20, 20)).view(400, 2)
+# col, bnd = separate_collocation_boundary_points(domain, cheb_points)
+# print(col.shape, bnd.shape)

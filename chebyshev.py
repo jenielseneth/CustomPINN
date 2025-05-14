@@ -1,6 +1,9 @@
 import math
-from matplotlib import pyplot as plt
 import torch
+
+from data_generation_utils import sample_random_mesh_points
+from generate_data import source_term
+from plot_utils import plot_points
 
 def sample_chebyshev_points_2(domain, num_points: tuple):
     x_num, y_num = num_points
@@ -68,7 +71,7 @@ def cheb_2d_impl(eval_points, values, domain):
     eval_x = eval_points[:, 0]
     eval_y = eval_points[:, 1]
     x_nodes = len(values)
-    y_nodes = len(values[0])
+    
     #for each y evaluate x
     res1 = torch.zeros((x_nodes, len(eval_points)))
     for i in range(x_nodes):
@@ -79,32 +82,12 @@ def cheb_2d_impl(eval_points, values, domain):
         res2[i] = cheb_1d_impl(eval_x[i:i+1], res1[:, i], domain[0:2])
     return res2
 
-def plot_points(points, values = None, cmap='viridis', title=""):
-    if values is not None:
-        values = values.detach().numpy()
-    scatter = plt.scatter(points[:, 0].detach().numpy(), points[:,1].detach().numpy(), c=values, cmap=cmap)
-    plt.colorbar(scatter)
-    plt.title(title)
-    plt.show()
-
-def plot_multiple_points(points_list, values_list, title_list = None, cmap_list = None):
-    for i, points in enumerate(points_list):
-        plt.subplot(2, 2, i+1).set_title(title_list[i] if title_list is not None else "")
-        if values_list[i] is not None:
-            values = values_list[i].detach().numpy()
-        cmap = cmap_list[i] if cmap_list is not None else "viridis"
-        scatter = plt.scatter(points[:, 0].detach().numpy(), points[:,1].detach().numpy(), c=values, cmap=cmap)
-        plt.colorbar(scatter)
-    plt.show()
-
+if __name__ == "__main__":
+    domain = (0,1,0,1)
+    eval_points = sample_random_mesh_points(domain, 30)
+    cheb_points = sample_chebyshev_points_2(domain, (20, 20))
     
-
-
-# domain = (0,1,0,1)
-# eval_points = sample_mesh_points(domain[0], domain[1], domain[2], domain[3], 30)
-# cheb_points = sample_chebyshev_points_2(domain, (20, 20))
-# values = test_source_term(cheb_points[:, :, 0],cheb_points[:, :, 1], cheb_points.shape[0:-1])
-# print(values.shape)
-# eval_values = cheb_2d_impl(eval_points=eval_points, values=values, domain=domain)
-# plot_points(cheb_points.view(400, 2), values.view(400))
-# plot_points(eval_points, eval_values)
+    values = source_term(cheb_points)
+    eval_values = cheb_2d_impl(eval_points=eval_points, values=values, domain=domain)
+    plot_points(cheb_points.view(400, 2), values.view(400))
+    plot_points(eval_points, eval_values)

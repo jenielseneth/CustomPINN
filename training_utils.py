@@ -61,7 +61,6 @@ class MultiDatasetWrapper(Dataset):
         if data_file_path[-1] != "/":
             data_file_path += "/"
         subdirectories = [data_file_path + a + "/" for a in os.listdir(data_file_path) if os.path.isdir(data_file_path + a)]
-        print(subdirectories)
         c, u, f, lengths, f_meshes = [], [], [], [], []
         for i, subdir in enumerate(subdirectories):
             coordinates, u_values, f_values, f_mesh = fetch_dataset(subdir, data_file_name)
@@ -86,9 +85,6 @@ class MultiDatasetWrapper(Dataset):
             if i!=0:
                 self.start_inds[i] = self.start_inds[i-1]+lengths[i-1]
 
-        print(self.start_inds)
-            
-
     def __len__(self):
         # return total dataset size
         return self.total_length
@@ -98,13 +94,16 @@ class MultiDatasetWrapper(Dataset):
         return self.coordinates[index], self.u_values[index], self.f_inds[index]
 
 
-def train(model, optimizer, dataloader: DataLoader, loss_fn: CustomDataPredLoss, f_values, f_meshes, domain, scheduler = None):
+def train(model, optimizer, dataloader: DataLoader, loss_fn: CustomDataPredLoss, 
+          f_values, f_meshes, domain, scheduler = None):
     size = len(dataloader.dataset)
     model.train()
     current_num = 0
-    for _, (coordinates, u_values, f_inds) in enumerate(dataloader):
+    total_loss = 0
+    for i, (coordinates, u_values, f_inds) in enumerate(dataloader):
         # Compute prediction and loss
-        loss = loss_fn(greens_function_approx=model, domain=domain, f_values=f_values, f_meshes=f_meshes, coordinates=coordinates, f_inds=f_inds, u=u_values)
+        loss = loss_fn(greens_function_approx=model, domain=domain, f_values=f_values, 
+                       f_meshes=f_meshes, coordinates=coordinates, f_inds=f_inds, u=u_values)
         # Backpropagation
         optimizer.zero_grad()
         loss.backward()
@@ -115,16 +114,21 @@ def train(model, optimizer, dataloader: DataLoader, loss_fn: CustomDataPredLoss,
         loss = loss.item()
         current_num= len(coordinates) + current_num
         print(f"\rAvg Train Loss per sample: {loss:>7f}  [{current_num:>5d}/{size:>5d}] \n", end="")
+        total_loss += loss
+    
+    return total_loss
 
-def test(dataloader, model, loss_fn: CustomDataPredLoss,  f_values, f_meshes, domain):
+def test(dataloader, model, loss_fn: CustomDataPredLoss, f_values, f_meshes, domain):
     size = len(dataloader.dataset)
     model.eval()
     test_loss = 0
     with torch.no_grad():
         for coordinate, u_value, f_inds in dataloader:
-            test_loss += loss_fn(greens_function_approx=model, domain=domain, f_values=f_values, f_meshes=f_meshes, coordinates=coordinate, f_inds=f_inds, u=u_value).item()
+            test_loss += loss_fn(greens_function_approx=model, domain=domain, f_values=f_values, f_meshes=f_meshes,
+            coordinates=coordinate, f_inds=f_inds, u=u_value).item()
 
-    print(f"Avg Test Loss per sample: {test_loss :>8f} \n", end="")
+    print(f"Avg Test Loss per sample: {test_loss/ len(dataloader) :>8f} \n", end="")
+
     return test_loss
 
 

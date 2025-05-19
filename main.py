@@ -1,9 +1,10 @@
 ####Get Dataset for training analytically 
+import os
 import torch
 from torch import nn
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
-from training_utils import WholeDatasetWrapper, train, test, MultiDatasetWrapper
+from training_utils import train, test, MultiDatasetWrapper
 from PINN import CustomPINN_Green2D
 from loss import CustomDataPredLoss
 from generate_data import source_term
@@ -14,12 +15,17 @@ if __name__ == "__main__":
     x_min, x_max = 0, 1 
     y_min, y_max = 0, 1
     domain = (x_min, x_max, y_min, y_max)
-    dir = "./data/manu_sol_1/"
-    MultiDatasetWrapper(data_file_path="./data/", col_data_file_name="collocation_train.pt", bnd_data_file_name="boundary_train.pt")
-    train_data = WholeDatasetWrapper(collocation_file_path=dir + "collocation_train.pt", boundary_file_path=dir + "boundary_train.pt")
-    test_data = WholeDatasetWrapper(collocation_file_path=dir + "collocation_test.pt", boundary_file_path=dir + "boundary_test.pt")
+    dir = "./models/"
+    if not os.path.exists(dir):
+        raise IsADirectoryError("The directory doesn't exist.")
+    train_data = MultiDatasetWrapper(data_file_path="./data/sin(x*y)", data_file_name="data_train.pt")
+    train_f_values = train_data.f_values
+    train_f_meshes = train_data.f_meshes
+    test_data = MultiDatasetWrapper(data_file_path="./data/sin(x*y)", data_file_name="data_test.pt")
+    test_f_values = test_data.f_values
+    test_f_meshes = test_data.f_meshes
     trainloader = DataLoader(train_data, batch_size=128, shuffle=True)
-    testloader = DataLoader(test_data, batch_size=len(test_data), shuffle=True)
+    testloader = DataLoader(test_data, batch_size=128, shuffle=True)
 
     model = CustomPINN_Green2D(4, 1, 32)
     f_source_term = source_term
@@ -31,8 +37,8 @@ if __name__ == "__main__":
     num_epochs = 300
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}\n-------------------------------")
-        train(model=model, optimizer=optimizer, dataloader=trainloader, loss_fn=loss_fn, scheduler=scheduler, f_source_term=f_source_term, domain=domain)
-        test(model=model, dataloader=testloader, loss_fn=loss_fn, f_source_term=f_source_term, domain=domain)
+        train(model=model, optimizer=optimizer, dataloader=trainloader, loss_fn=loss_fn, scheduler=scheduler, f_values=train_f_values, f_meshes=train_f_meshes, domain=domain)
+        test(model=model, dataloader=testloader, loss_fn=loss_fn, f_values=test_f_values, f_meshes=test_f_meshes, domain=domain)
     
     torch.save(model.state_dict(), dir +  "model.pth")
     print("Training complete. Saved model to " + dir + "model.pth.")

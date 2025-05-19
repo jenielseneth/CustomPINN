@@ -1,14 +1,14 @@
 from chebyshev import cheb_2d_impl, sample_chebyshev_points_2
-from data_generation_utils import sample_mesh_points, separate_collocation_boundary_points
+from data_generation_utils import sample_random_mesh_points, separate_collocation_boundary_points
 from loss import CustomDataPredLoss
 import torch
-from generate_data import source_term
+from expr_generation_utils import expr_to_func, generate_u_expr, get_diffusion_term_a_expr, get_f_expr, func_input_wrapper
 from pde_utils import evaluate_model, get_u_evaluation_func
 
 
 # domain = (-50,50,-50,50) 
-domain = (0,10,0,10)
-eval_points = sample_mesh_points(domain, 400)
+domain = (0,1,0,1)
+eval_points = sample_random_mesh_points(domain, 400)
 
 #-----------------------------------------------------------------------
 
@@ -54,3 +54,18 @@ eval_points = sample_mesh_points(domain, 400)
 # cheb_points = sample_chebyshev_points_2(domain, (20, 20)).view(400, 2)
 # col, bnd = separate_collocation_boundary_points(domain, cheb_points)
 # print(col.shape, bnd.shape)
+u = generate_u_expr()
+a = get_diffusion_term_a_expr()
+f = get_f_expr(u, a)
+u_funcs = expr_to_func(u)
+f_funcs = expr_to_func(f)
+print("u expr: ", u)
+print("a expr: ", a)
+print("f expr: ", f)
+test_tensor_1 = torch.tensor([1])
+test_tensor_2 = torch.tensor([2])
+print([u_i(test_tensor_1, test_tensor_2) for u_i in u_funcs])
+print([f_i(test_tensor_1, test_tensor_2) for f_i in f_funcs])
+f_changed = func_input_wrapper(f_funcs)
+test_tensor = torch.tensor([[1,2]])
+print([f_i(test_tensor) for f_i in f_changed])

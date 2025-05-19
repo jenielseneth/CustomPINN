@@ -46,16 +46,9 @@ class CustomDataPredLoss(object):
         super().__init__()
         self.num_eval_points = num_eval_points
 
-    def __call__(self, greens_function_approx, f_source_term, coordinates, domain, u, *args, **kwargs):
-        u_pred = torch.zeros_like(u)
-        
-        u_pred = evaluate_model(model=greens_function_approx, source_term=f_source_term, coordinates=coordinates, domain=domain, chebyshev=True)
-        # for c in range(len(coordinates)):
-            # filter = torch.where((mesh - coordinates[c]).pow(2).sum(1).sqrt() > 1e-5)[0]
-            # filtered_mesh = mesh[filter]
-            # source = f_source_term(filtered_mesh[:,0],filtered_mesh[:,1])
-            # pred = torch.sum(greens_function_approx(filtered_mesh, torch.zeros_like(filtered_mesh)+coordinates[c]) * source)
-            # u_pred[c] = pred
+    def __call__(self, greens_function_approx, f_values, f_meshes, coordinates, domain, f_inds, u, *args, **kwargs):
+        u_pred = evaluate_model(model=greens_function_approx, f_values=f_values, f_meshes=f_meshes, f_inds=f_inds, coordinates=coordinates, domain=domain)
         diff = torch.nn.functional.mse_loss(u_pred, u)
+        # plot_multiple_points([coordinates, coordinates], values_list=[u_pred, u], title_list=["Predicted Values", "Ground Truth"])
         return diff
     

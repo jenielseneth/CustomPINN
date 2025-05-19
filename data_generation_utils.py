@@ -40,39 +40,6 @@ def sample_uniform_mesh_points(domain, num_points: tuple, boundary: bool = False
     result = torch.column_stack((xx.ravel(), yy.ravel()))
     return result
 
-# def sample_mesh_points(domain, num_points, uniform: bool = False, boundary: bool = False):
-#     x_min, x_max, y_min, y_max = domain
-#     if boundary:
-#         half = num_points//2
-#         x = torch.rand(half) * (x_max-x_min) + x_min
-#         y = torch.rand(half) * (y_max-y_min) + y_min
-#         results = []
-#         for i, b in enumerate(domain):
-#             j = i % 2
-#             ind = half//2*j
-#             b_tensor = torch.full((half//2,), b)
-#             paired = torch.column_stack((b_tensor, y[ind:(ind+half//2)])) if i < 2 else torch.column_stack((x[ind:(ind+half//2)], b_tensor))
-#             results.append(paired)
-#         return torch.cat(results, dim=0)
-#     if not uniform:
-#         x = torch.rand(num_points) * (x_max-x_min) + x_min
-#         y = torch.rand(num_points) * (y_max-y_min) + y_min
-#         return torch.vstack((x, y)).T
-#     else:
-#         spacing = math.floor(math.sqrt(num_points))
-#         x = torch.linspace(x_min, x_max, spacing)
-#         y = torch.linspace(y_min, y_max, spacing)
-#         if boundary:
-#             results = []
-#             for i, b in enumerate(domain):
-#                 b_tensor = torch.full_like(x, b)
-#                 paired = torch.column_stack((b_tensor, y)) if i < 2 else torch.column_stack((x, b_tensor))
-#                 results.append(paired)
-#             return torch.cat(results, dim=0)
-#         xx, yy = torch.meshgrid(x, y, indexing='ij')
-#         result = torch.column_stack((xx.ravel(), yy.ravel()))
-#         return result
-
 def separate_collocation_boundary_points(domain, points):
     boundary_ind = []
     collocation_ind = []
@@ -85,7 +52,33 @@ def separate_collocation_boundary_points(domain, points):
     collocation_data = points[collocation_ind]
     return collocation_data, boundary_data
 
-def generate_points(domain, eval_u_func, dir: str, num_col_points: int, num_bnd_points: int = 20, chebyshev:bool = False, training_data: bool= True, boundary_value: float = None):
+def generate_points(domain, u_gt, f_func, dir: str, num_points: tuple, qudrature_num_points: tuple, training_data: bool= True, chebyshev:bool = True, uniform_quadrature: bool = True, u_gt_expr: str = None, f_func_expr: str = None):
+    if not os.path.exists(dir):
+        raise Exception("The directory " + dir + " doesn't exist.")
+    print("Generating points to save into dir: " + dir)
+    # Sample mesh points
+    if chebyshev:
+        x_num_nodes, y_num_nodes = num_points
+        mesh_points = sample_chebyshev_points(domain, num_points=(x_num_nodes, y_num_nodes))
+    else:
+        assert len(num_points) == 1
+        mesh_points = sample_random_mesh_points(domain, num_points[0])
+
+    u_values = u_gt(mesh_points)
+    if uniform_quadrature:
+        x_num_nodes, y_num_nodes = qudrature_num_points
+        f_mesh = sample_uniform_mesh_points(domain, (x_num_nodes, y_num_nodes))
+        f_values = f_func(f_mesh)
+    else:
+        f_values = f_func(mesh_points)
+        f_mesh = mesh_points
+    data = {'coordinates': mesh_points, 'u_values': u_values, 'f_values': f_values, "f_mesh": f_mesh, "uniform_quadrature": uniform_quadrature, "chebyshev_bool": chebyshev, "u_gt_func_expr": u_gt_expr, "f_func_str_expr": f_func_expr}
+    file_suffix = "_train.pt" if training_data else "_test.pt"
+    torch.save(data, dir + "data"+file_suffix)
+    print("Saved generated points into " + dir + ".")
+
+def generate_points_w_bnd_sepeartion(domain, eval_u_func, dir: str, num_col_points: int, num_bnd_points: int = 20, chebyshev:bool = False, training_data: bool= True):
+    raise NotImplementedError
     if not os.path.exists(dir):
         raise Exception("The directory " + dir + " doesn't exist.")
     x_min, x_max, y_min, y_max = domain

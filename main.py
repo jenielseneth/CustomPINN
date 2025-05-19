@@ -15,26 +15,46 @@ if __name__ == "__main__":
     x_min, x_max = 0, 1 
     y_min, y_max = 0, 1
     domain = (x_min, x_max, y_min, y_max)
-    dir = "./models/"
+    dir = "./data/sin(x*y)/"
+
     if not os.path.exists(dir):
         raise IsADirectoryError("The directory doesn't exist.")
-    train_data = MultiDatasetWrapper(data_file_path="./data/sin(x*y)", data_file_name="data_train.pt")
+    train_data = MultiDatasetWrapper(data_file_path="./data/sin(x*y)/data", data_file_name="data_train.pt")
     train_f_values = train_data.f_values
     train_f_meshes = train_data.f_meshes
-    test_data = MultiDatasetWrapper(data_file_path="./data/sin(x*y)", data_file_name="data_test.pt")
+    test_data = MultiDatasetWrapper(data_file_path="./data/sin(x*y)/data", data_file_name="data_test.pt")
     test_f_values = test_data.f_values
     test_f_meshes = test_data.f_meshes
-    trainloader = DataLoader(train_data, batch_size=128, shuffle=True)
-    testloader = DataLoader(test_data, batch_size=128, shuffle=True)
+    training_bs = 128
+    test_bs = 128
+    trainloader = DataLoader(train_data, batch_size=training_bs, shuffle=True)
+    testloader = DataLoader(test_data, batch_size=test_bs, shuffle=True)
 
-    model = CustomPINN_Green2D(4, 1, 32)
-    f_source_term = source_term
+    hidden_channels = 32
+    model = CustomPINN_Green2D(4, 1, hidden_size=hidden_channels)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-2, weight_decay=1e-4)
-    scheduler = StepLR(optimizer, step_size=100, gamma=0.5)
+    lr = 1e-2
+    weight_decay = 1e-4
+    step_size=100
+    gamma=0.5
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    scheduler = StepLR(optimizer, step_size=step_size, gamma=gamma)
     loss_fn = CustomDataPredLoss(num_eval_points=20)
-
     num_epochs = 300
+
+
+    with open(dir + "main_info.txt", "w") as f: 
+        f.write('Domain: ' + ', '.join(map(str,domain)) + "\n")
+        f.write('Train Batch Size: ' + str(training_bs) + "\n")
+        f.write('Test Batch Size: ' + str(test_bs) + "\n")
+        f.write('Model Hidden Channels: ' + str(hidden_channels) + "\n")
+        f.write('Number of Training Epochs: ' + str(num_epochs) + "\n")
+        f.write('Optimizer Learning Rate: ' + str(lr) + "\n")
+        f.write('Optimizer Weight Decay: ' + str(weight_decay) + "\n")
+        f.write('Scheduler Step Size: ' + str(step_size) + "\n")
+        f.write('Scheduler Gamma: ' + str(gamma) + "\n")
+
+
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}\n-------------------------------")
         train(model=model, optimizer=optimizer, dataloader=trainloader, loss_fn=loss_fn, scheduler=scheduler, f_values=train_f_values, f_meshes=train_f_meshes, domain=domain)

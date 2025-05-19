@@ -72,7 +72,7 @@ def generate_points(domain, u_gt, f_func, dir: str, num_points: tuple, qudrature
     else:
         f_values = f_func(mesh_points)
         f_mesh = mesh_points
-    data = {'coordinates': mesh_points, 'u_values': u_values, 'f_values': f_values, "f_mesh": f_mesh, "uniform_quadrature": uniform_quadrature, "chebyshev_bool": chebyshev, "u_gt_func_expr": u_gt_expr, "f_func_str_expr": f_func_expr}
+    data = {'coordinates': mesh_points, 'u_values': u_values, 'f_values': f_values, "f_mesh": f_mesh, "uniform_quadrature": uniform_quadrature, "chebyshev_bool": chebyshev, "u_gt_func_expr": u_gt_expr, "f_func_str_expr": f_func_expr, "domain": domain}
     file_suffix = "_train.pt" if training_data else "_test.pt"
     torch.save(data, dir + "data"+file_suffix)
     print("Saved generated points into " + dir + ".")

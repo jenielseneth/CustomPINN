@@ -29,7 +29,7 @@ coordinates, u_values, f_inds = test_data[ind_dataset_starts[i]:ind_dataset_star
 filter = torch.where(u_values != torch.inf)[0]
 coordinates = coordinates[filter]
 u_values = u_values[filter]
-uniform_mesh = sample_uniform_mesh_points(domain, num_points=(33,33))
+uniform_mesh = sample_uniform_mesh_points(domain, num_points=(50,50))
 
 
 # evaluate_u = get_u_evaluation_func(model, source_term=test_source_term)

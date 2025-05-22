@@ -4,7 +4,7 @@ import torch
 import random
 import os
 
-from loss import CustomDataPredLoss
+from loss3d import CustomDataPredLoss3d
 
 
 class DatasetWrapper(Dataset):
@@ -61,6 +61,7 @@ class MultiDatasetWrapper(Dataset):
         if data_file_path[-1] != "/":
             data_file_path += "/"
         subdirectories = [data_file_path + a + "/" for a in os.listdir(data_file_path) if os.path.isdir(data_file_path + a)]
+        print(subdirectories)
         c, u, f, lengths, f_meshes = [], [], [], [], []
         for i, subdir in enumerate(subdirectories):
             coordinates, u_values, f_values, f_mesh = fetch_dataset(subdir, data_file_name)
@@ -94,7 +95,7 @@ class MultiDatasetWrapper(Dataset):
         return self.coordinates[index], self.u_values[index], self.f_inds[index]
 
 
-def train(model, optimizer, dataloader: DataLoader, loss_fn: CustomDataPredLoss, 
+def train(model, optimizer, dataloader: DataLoader, loss_fn: CustomDataPredLoss3d, 
           f_values, f_meshes, domain, scheduler = None):
     size = len(dataloader.dataset)
     model.train()
@@ -118,7 +119,7 @@ def train(model, optimizer, dataloader: DataLoader, loss_fn: CustomDataPredLoss,
     
     return total_loss
 
-def test(dataloader, model, loss_fn: CustomDataPredLoss, f_values, f_meshes, domain):
+def test(dataloader, model, loss_fn: CustomDataPredLoss3d, f_values, f_meshes, domain):
     size = len(dataloader.dataset)
     model.eval()
     test_loss = 0

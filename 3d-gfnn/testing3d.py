@@ -1,0 +1,80 @@
+# from chebyshev3d import cheb_2d_impl, sample_chebyshev_points_2
+from data_generation_utils3d import sample_chebyshev_points_3d, sample_random_mesh_points_3d, sample_uniform_mesh_points_3d
+from plot_utils3d import plot_points_3d, plot_multiple_points_3d
+# from loss3d import CustomDataPredLoss
+# import torch
+# from expr_generation_utils3d import expr_to_func, generate_u_expr, get_diffusion_term_a_expr, get_f_expr, func_input_wrapper
+# from pde_utils3d import evaluate_model, get_u_evaluation_func
+
+
+# domain = (-50,50,-50,50) 
+domain = (0,1,0,1,0,1)
+eval_points = sample_random_mesh_points_3d(domain, 400)
+eval_points_uniform = sample_uniform_mesh_points_3d(domain, (10,10,10))
+chebyshev_points = sample_chebyshev_points_3d(domain, (2,2,30))
+
+#-----------------------------------------------------------------------
+
+##Evaluating Chebyshev points implementation and testing loss functions
+# loss_fn = CustomLoss()
+# domain = (-5,5,-5,5)
+# eval_points = sample_mesh_points(domain[0], domain[1], domain[2], domain[3], 400)
+# cheb_points = sample_chebyshev_points_2(domain, (20, 20))
+# values = test_source_term(cheb_points[:, :, 0],cheb_points[:, :, 1], cheb_points.shape[0:-1])
+# eval_values = cheb_2d_impl(eval_points=eval_points, values=values, domain=domain)
+# plot_points(cheb_points.view(400, 2), values.view(400))
+# plot_points(eval_points, eval_values)
+# greens_function = greens_function_poisson_eq_2d
+# loss = loss_fn(greens_function_approx=greens_function, f_source_term=test_source_term, coordinates=eval_points, domain=domain, u=eval_values)
+# print(loss)
+
+#-----------------------------------------------------------------------
+
+# ##Investigating the effect of psi and phi on the structure of u
+# eval_points = sample_mesh_points(domain, 1000)
+# def custom_greens_function(x, y):
+#     def phi(x, y):
+#         val = torch.sum(x+y, -1)
+#         # val = torch.abs((x*y).sum(-1))
+#         val = torch.sum(torch.cos(x)+torch.cos(y))
+#         return val
+    
+#     def psi(x, y):
+#         val =  torch.sum(x-y, -1)
+#         # val = (x+y).sum(-1)
+#         val = torch.sum(torch.sin(x)+torch.sin(y))
+#         return val
+    
+#     return phi(x,y) * torch.log(torch.abs(x-y).sum(-1)) + psi(x,y)
+
+# values = evaluate_model(model=custom_greens_function, source_term=source_term, coordinates=eval_points, domain=domain, chebyshev=True)
+
+# plot_points(eval_points, values=values)
+
+
+#-----------------------------------------------------------------------
+
+# cheb_points = sample_chebyshev_points_2(domain, (20, 20)).view(400, 2)
+# col, bnd = separate_collocation_boundary_points(domain, cheb_points)
+# print(col.shape, bnd.shape)
+# u = generate_u_expr()
+# a = get_diffusion_term_a_expr()
+# f = get_f_expr(u, a)
+# u_funcs = expr_to_func(u)
+# f_funcs = expr_to_func(f)
+# print("u expr: ", u)
+# print("a expr: ", a)
+# print("f expr: ", f)
+# test_tensor_1 = torch.tensor([1])
+# test_tensor_2 = torch.tensor([2])
+# print([u_i(test_tensor_1, test_tensor_2) for u_i in u_funcs])
+# print([f_i(test_tensor_1, test_tensor_2) for f_i in f_funcs])
+# f_changed = func_input_wrapper(f_funcs)
+# test_tensor = torch.tensor([[1,2]])
+# print([f_i(test_tensor) for f_i in f_changed])
+
+
+#-----------------------------------------------------------------------
+
+#Test 3d plotting function
+plot_multiple_points_3d([chebyshev_points], values_list=[chebyshev_points.sum(-1)])

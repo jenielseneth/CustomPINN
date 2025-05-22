@@ -4,20 +4,19 @@ import torch
 from torch import nn
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
-from training_utils import train, test, MultiDatasetWrapper
-from PINN import CustomPINN_Green2D
-from loss import CustomDataPredLoss
-from generate_data import source_term
+from training_utils3d import train, test, MultiDatasetWrapper
+from PINN3d import CustomPINN_Green3D
+from loss3d import CustomDataPredLoss3d
 from datetime import datetime
-##2D example
 
 
 if __name__ == "__main__":
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     x_min, x_max = 0, 1 
     y_min, y_max = 0, 1
-    domain = (x_min, x_max, y_min, y_max)
-    main_dir = "./data/sin(x*y)/"
+    z_min, z_max = 0, 1
+    domain = (x_min, x_max, y_min, y_max, z_min, z_max)
+    main_dir = "./res/-1/"
     model_dir = main_dir + f"models/model_{timestamp}/" 
     if not os.path.exists(main_dir):
         raise IsADirectoryError("The directory doesn't exist.")
@@ -34,7 +33,7 @@ if __name__ == "__main__":
     testloader = DataLoader(test_data, batch_size=test_bs, shuffle=True)
 
     hidden_channels = 32
-    model = CustomPINN_Green2D(4, 1, hidden_size=hidden_channels)
+    model = CustomPINN_Green3D(6, 1, hidden_size=hidden_channels)
 
     lr = 1e-2
     weight_decay = 1e-4
@@ -42,7 +41,7 @@ if __name__ == "__main__":
     gamma=0.5
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = StepLR(optimizer, step_size=step_size, gamma=gamma)
-    loss_fn = CustomDataPredLoss(num_eval_points=20)
+    loss_fn = CustomDataPredLoss3d(num_eval_points=20)
     num_epochs = 300
 
     for epoch in range(num_epochs):

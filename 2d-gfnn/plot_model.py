@@ -4,26 +4,24 @@ from PINN import CustomPINN_Green2D
 from plot_utils import plot_multiple_points
 from data_generation_utils import sample_uniform_mesh_points
 from pde_utils import evaluate_model
-from training_utils import MultiDatasetWrapper, DatasetWrapper
-from generate_data import source_term,explicit_u_func_1
+from training_utils import MultiDatasetWrapper
 
-model_dir = "./models/"
+model_dir = "./data/sin(x*y)/models/model_1/"
 domain = (0,1,0,1)
 model = CustomPINN_Green2D(4, 1, 32)
 model.load_state_dict(torch.load(model_dir + "model.pth"))
 model.eval()
 
-data_type = "test"
-
 def u_func(points):
     x, y = points[:,0], points[:,1]
-    return 2.47658372789608*x**3*y**3 + 4.42910337153783*torch.sin(2*x)*torch.cos(2*y)
+    return 1.41848029318881*x**2*y + 1.46540781976221*torch.sin(5*x)*torch.cos(y)
 
 test_data = MultiDatasetWrapper(data_file_path="./data/sin(x*y)/data", data_file_name="data_test.pt")
 test_f_values = test_data.f_values
 test_f_meshes = test_data.f_meshes
 ind_dataset_starts = test_data.start_inds
-i = 0
+
+i = 6
 coordinates, u_values, f_inds = test_data[ind_dataset_starts[i]:ind_dataset_starts[i+1]]
 
 filter = torch.where(u_values != torch.inf)[0]

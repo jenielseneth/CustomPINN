@@ -1,4 +1,0 @@
-Domain: 0, 1, 0, 1
-Function: 1 + x**2 + 2 * y**2
-Source Term: True
-Train using Chebyshev points: -6

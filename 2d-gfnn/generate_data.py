@@ -42,8 +42,8 @@ if __name__ == "__main__":
         f.write('Train using Chebyshev points: ' + source_term_str + "\n")
     
     qudrature_num_points = (20, 20)
-    generate_points(domain=domain, num_points=(20, 20), qudrature_num_points=qudrature_num_points, u_gt=explicit_u_func_1, f_func=source_term, u_gt_expr=function_str, f_func_expr=source_term_str, chebyshev=True, dir=dir, training_data=True)
-    generate_points(domain=domain, num_points=(400,), qudrature_num_points=qudrature_num_points, u_gt=explicit_u_func_1, f_func=source_term, u_gt_expr=function_str, f_func_expr=source_term_str, chebyshev=False, dir=dir, training_data=False)
+    generate_points(domain=domain, num_points=(20, 20), qudrature_num_points=qudrature_num_points, u_gt_func=explicit_u_func_1, f_func=source_term, u_gt_expr=function_str, f_func_expr=source_term_str, chebyshev=True, dir=dir, training_data=True)
+    generate_points(domain=domain, num_points=(400,), qudrature_num_points=qudrature_num_points, u_gt_func=explicit_u_func_1, f_func=source_term, u_gt_expr=function_str, f_func_expr=source_term_str, chebyshev=False, dir=dir, training_data=False)
 
     print(dir + "data_train.pt")
     points = torch.load(dir + "data_train.pt")

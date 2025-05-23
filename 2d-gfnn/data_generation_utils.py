@@ -52,7 +52,9 @@ def separate_collocation_boundary_points(domain, points):
     collocation_data = points[collocation_ind]
     return collocation_data, boundary_data
 
-def generate_points(domain, u_gt, f_func, dir: str, num_points: tuple, qudrature_num_points: tuple, training_data: bool= True, chebyshev:bool = True, uniform_quadrature: bool = True, u_gt_expr: str = None, f_func_expr: str = None):
+def generate_points(domain, u_gt_func, f_func, dir: str, num_points: tuple, qudrature_num_points: tuple, 
+                    u_bnd_func = None, training_data: bool= True, chebyshev:bool = True, uniform_quadrature: bool = True, 
+                    u_gt_expr: str = None, f_func_expr: str = None, u_bnd_expr: str = None):
     if not os.path.exists(dir):
         raise Exception("The directory " + dir + " doesn't exist.")
     print("Generating points to save into dir: " + dir)
@@ -64,7 +66,16 @@ def generate_points(domain, u_gt, f_func, dir: str, num_points: tuple, qudrature
         assert len(num_points) == 1
         mesh_points = sample_random_mesh_points(domain, num_points[0])
 
-    u_values = u_gt(mesh_points)
+    if u_bnd_func == None:
+        u_values = u_gt_func(mesh_points)
+    else:
+        collocation_data, boundary_data = separate_collocation_boundary_points(domain, mesh_points)
+        u_col_values = u_gt_func(collocation_data)
+        u_bnd_values = u_bnd_func(boundary_data)
+        u_values = torch.cat((u_col_values, u_bnd_values))
+        mesh_points = torch.cat((collocation_data, boundary_data))
+
+
     if uniform_quadrature:
         x_num_nodes, y_num_nodes = qudrature_num_points
         f_mesh = sample_uniform_mesh_points(domain, (x_num_nodes, y_num_nodes))
@@ -72,7 +83,9 @@ def generate_points(domain, u_gt, f_func, dir: str, num_points: tuple, qudrature
     else:
         f_values = f_func(mesh_points)
         f_mesh = mesh_points
-    data = {'coordinates': mesh_points, 'u_values': u_values, 'f_values': f_values, "f_mesh": f_mesh, "uniform_quadrature": uniform_quadrature, "chebyshev_bool": chebyshev, "u_gt_func_expr": u_gt_expr, "f_func_str_expr": f_func_expr, "domain": domain}
+    data = {'coordinates': mesh_points, 'u_values': u_values, 'f_values': f_values, 
+            "f_mesh": f_mesh, "uniform_quadrature": uniform_quadrature, "chebyshev_bool": chebyshev, 
+            "u_gt_func_expr": u_gt_expr, "f_func_str_expr": f_func_expr, "u_bnd_func_expr": u_bnd_expr, "domain": domain}
     file_suffix = "_train.pt" if training_data else "_test.pt"
     torch.save(data, dir + "data"+file_suffix)
     print("Saved generated points into " + dir + ".")

@@ -1,3 +1,4 @@
+import math
 import torch
 import sympy
 import random
@@ -21,15 +22,38 @@ x_sym, y_sym = sympy.symbols('x y')
 
 
 def get_diffusion_term_a_expr():
+    return -1
     return sympy.sin(x_sym*y_sym)
 
 def generate_u_expr(n_expr: int = 5):
     u_exprs = []
     for i in range(n_expr):
-        expr = (
-            random.uniform(0.5, 5.0) * sympy.sin(random.randint(1, 5)*x_sym) * 
-            sympy.cos(random.randint(1, 5)*y_sym) +
-            random.uniform(0.1, 5.0) * x_sym**random.randint(1, 3) * y_sym**random.randint(1, 3)
+        # expr = (
+        #     random.uniform(0.5, 5.0) * sympy.sin(random.randint(1, 5)*x_sym) * 
+        #     sympy.cos(random.randint(1, 5)*y_sym) +
+        #     random.uniform(0.1, 5.0) * x_sym**random.randint(1, 3) * y_sym**random.randint(1, 3)
+        # )
+        expr = (sympy.exp(-1/2*(20*(x_sym-0.5)**2 +20*(y_sym-0.5)**2))/(2*math.pi))
+        u_exprs.append(expr)
+    return u_exprs
+
+def get_u_bnd_expr(n_expr: int = 5):
+    u_bnd_exprs = []
+    for _ in range(n_expr):
+        expr = 0
+        u_bnd_exprs.append(expr)
+    return u_bnd_exprs
+
+def generate_u_expr_w_bnd(domain, u_bnd_exprs):
+    '''
+    Generate u(x) expressions based on boundary conditions. Currently only implemented for constant boundary conditions.
+    '''
+    x_min, x_max, y_min, y_max = domain
+    u_exprs = []
+    for i in range(len(u_bnd_exprs)):
+        expr = (100* ((x_sym-x_max)**random.randint(1, 2))*((x_sym-x_min)**random.randint(1, 2))
+                * ((y_sym-y_max)**random.randint(1, 2))*((y_sym-y_min)**random.randint(1, 2))
+                + u_bnd_exprs[i]
         )
         u_exprs.append(expr)
     return u_exprs
@@ -55,5 +79,5 @@ def func_input_wrapper(funcs):
     '''
     changes functions that take x, y as input to taking points of form batch_size x 2 as input.
     '''
-    changed_funcs = [lambda points, f=f: f(points[:, 0], points[:, 1]) for f in funcs]
+    changed_funcs = [lambda points, f=f: torch.ones(len(points)) * f(points[:, 0], points[:, 1]) for f in funcs]
     return changed_funcs

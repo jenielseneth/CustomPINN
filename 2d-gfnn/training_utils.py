@@ -26,27 +26,6 @@ class DatasetWrapper(Dataset):
         return self.coordinates[index], self.u_values[index], self.f_values, self.f_mesh
     
 
-# class WholeDatasetWrapper(Dataset):
-#     def __init__(self, collocation_file_path: str, boundary_file_path: str):
-#         self.col_data = torch.load(collocation_file_path)
-#         self.bnd_data = torch.load(boundary_file_path)
-#         self.c_coordinates = self.col_data["coordinates"]
-#         self.c_values = self.col_data["values"]
-#         self.b_coordinates = self.bnd_data["coordinates"]
-#         self.b_values = self.bnd_data["values"]
-#         self.coordinates = torch.cat((self.c_coordinates, self.b_coordinates))
-#         self.values = torch.cat((self.c_values, self.b_values))
-#         self.length = len(self.coordinates)
-
-#     def __len__(self):
-#         # return total dataset size
-#         return self.length
-
-#     def __getitem__(self, index):
-#         # write your code to return each batch element
-#         return self.coordinates[index], self.values[index]
-
-
 def fetch_dataset(file_path: str, data_file_path: str):
     data = torch.load(file_path + data_file_path)
     coordinates = data["coordinates"]

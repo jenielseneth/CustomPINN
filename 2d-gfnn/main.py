@@ -15,15 +15,15 @@ if __name__ == "__main__":
     x_min, x_max = 0, 1 
     y_min, y_max = 0, 1
     domain = (x_min, x_max, y_min, y_max)
-    main_dir = "./data/sin(x*y)/"
+    main_dir = "./res/20250523_1123/"
     model_dir = main_dir + f"models/model_{timestamp}/" 
     if not os.path.exists(main_dir):
         raise IsADirectoryError("The directory doesn't exist.")
     
-    train_data = MultiDatasetWrapper(data_file_path=main_dir + "data", data_file_name="data_train.pt")
+    train_data = MultiDatasetWrapper(data_file_path=main_dir + "data/", data_file_name="data_train.pt")
     train_f_values = train_data.f_values
     train_f_meshes = train_data.f_meshes
-    test_data = MultiDatasetWrapper(data_file_path=main_dir + "data", data_file_name="data_test.pt")
+    test_data = MultiDatasetWrapper(data_file_path=main_dir + "data/", data_file_name="data_test.pt")
     test_f_values = test_data.f_values
     test_f_meshes = test_data.f_meshes
     training_bs = 128

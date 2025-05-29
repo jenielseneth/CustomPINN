@@ -54,11 +54,6 @@ def generate_data(u_expressions: list, u_bnd_expressions: list, f_expressions: l
                         u_chebyshev_mesh=u_chebyshev_mesh, save_dir=subdir, training_data=train_data, 
                         uniform_f_quadrature=uniform_f_quadrature, f_qudrature_num_points=f_mesh_num_points)
         
-        # generate_points(domain=domain, num_points=(400,), f_qudrature_num_points=qudrature_num_points, 
-        #                 u_gt_func=u_changed[i], f_func=f_changed[i],
-        #                 u_gt_expr=function_str, f_func_expr=source_term_str, 
-        #                 u_chebyshev_points=False, save_dir=subdir, training_data=False, uniform_f_quadrature=uniform_quadrature)
-
         name = "data_train.pt" if train_data else "data_test.pt"
         points = torch.load(subdir + name)
         u_coordinates = points["coordinates"]
@@ -68,15 +63,9 @@ def generate_data(u_expressions: list, u_bnd_expressions: list, f_expressions: l
         f_values = points["f_values"]
         f_mesh = points["f_mesh"]
         plot_points(f_mesh, f_values,title=f'Training f_{i}(x) Data')
-        
-        # points = torch.load(subdir + "data_test.pt")
-        # coordinates = points["coordinates"]
-        # values = points["u_values"]
-        # plot_points(coordinates, values, title=f'Test u_{i}(x) Data')
-        
-        # values = points["f_values"]
-        # uniform_points = points["f_mesh"]
-        # plot_points(uniform_points, values,title=f'Test f_{i}(x) Data')
+
+
+
 
 if __name__ == "__main__":  
 

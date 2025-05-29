@@ -35,9 +35,6 @@ def get_collocation_boundary_idx(domain, points):
         else:
             collocation_ind.append(i)
     return collocation_ind, boundary_ind
-    boundary_data = points[boundary_ind]
-    collocation_data = points[collocation_ind]
-    return collocation_data, boundary_data
 
 def fetch_dataset(file_path: str, data_file_path: str):
     data = torch.load(file_path + data_file_path)
@@ -48,7 +45,11 @@ def fetch_dataset(file_path: str, data_file_path: str):
     return coordinates, u_values, f_values, f_mesh
 
 class MultiDatasetWrapper(Dataset):
-
+    '''
+    Wrapper to retrieve all datasets and store them into one main dataset wrapper.
+    All datasets are concatenated with each other. 
+    We use a pointer system for mapping u_values with their corresponding f_meshes and f_values to avoid duplicate copies of the data.
+    '''
     def __init__(self, data_file_path: str,data_file_name: str, domain: tuple):
         self.domain = domain
         if data_file_path[-1] != "/":
@@ -89,7 +90,12 @@ class MultiDatasetWrapper(Dataset):
 
 
 class MultiBndDatasetWrapper(Dataset):
-
+    '''
+    Wrapper to retrieve all datasets and store them into one main dataset wrapper, separating boundary and collocation points.
+    Each dataset is given as a single element, as opposed to MultiDatasetWrapper where all e.g. point data is concatenated into a single tensor.
+    We forgo the pointer system mentioned in MultiDatasetWrapper, as to train on the loss with boundary values included, 
+    we need to train each dataset individually to preserve structure. 
+    '''
     def __init__(self, data_file_path: str,data_file_name: str, domain: tuple):
         self.domain = domain
 
@@ -129,43 +135,7 @@ class MultiBndDatasetWrapper(Dataset):
                     "bnd_u_vals": self.u_bnd_values[index], "f_vals": self.f_values[index], "f_mesh": self.f_meshes[index]}
         return ret_item
 
-# def train(model, optimizer, dataloader: DataLoader, loss_fn: DataPredLoss, 
-#           f_values, f_meshes, domain, scheduler = None):
-#     size = len(dataloader.dataset)
-#     model.train()
-#     current_num = 0
-#     total_loss = 0
-#     for i, (coordinates, u_values, f_inds) in enumerate(dataloader):
-#         # Compute prediction and loss
-#         loss = loss_fn(greens_function_approx=model, domain=domain, f_values=f_values, 
-#                        f_meshes=f_meshes, f_inds=f_inds,
-#                        coordinates=coordinates,  u=u_values)
-#         # Backpropagation
-#         optimizer.zero_grad()
-#         loss.backward()
-#         optimizer.step()
-#         if scheduler is not None:
-#             scheduler.step()
 
-#         loss = loss.item()
-#         current_num= len(coordinates) + current_num
-#         print(f"\rAvg Train Loss per sample: {loss:>7f}  [{current_num:>5d}/{size:>5d}] \n", end="")
-#         total_loss += loss
-    
-#     return total_loss
-
-# def test(dataloader, model, loss_fn: DataPredLoss, f_values, f_meshes, domain):
-#     size = len(dataloader.dataset)
-#     model.eval()
-#     test_loss = 0
-#     with torch.no_grad():
-#         for coordinate, u_value, f_inds in dataloader:
-#             test_loss += loss_fn(greens_function_approx=model, domain=domain, f_values=f_values, f_meshes=f_meshes,
-#             coordinates=coordinate, f_inds=f_inds, u=u_value).item()
-
-#     print(f"Avg Test Loss per sample: {test_loss/ len(dataloader) :>8f} \n", end="")
-
-#     return test_loss
 
 def train_2(model, optimizer, dataloader: DataLoader, loss_fn: UpdatedDataPredLoss, 
             domain, scheduler = None):

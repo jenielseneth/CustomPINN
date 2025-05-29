@@ -7,20 +7,6 @@ from data_generation_utils import generate_points, sample_uniform_mesh_points
 import sympy
 import os
 
-def explicit_u_func_1(points):
-    '''
-    points: Tensor of n x m x ... x b x 2
-    '''
-    x, y = points[..., 0], points[..., 1]
-    return x**2 + y**2
-
-def source_term(points):
-    '''
-    points: Tensor of n x m x ... x b x 2
-    '''
-    x, y = points[..., 0], points[..., 1]
-    return -6 * x * y**3 - 6 * y * x**3
-
 if __name__ == "__main__":  
     name = "manu_sol_2/"
     function_str = "x**3 * y**3"
@@ -42,8 +28,8 @@ if __name__ == "__main__":
         f.write('Train using Chebyshev points: ' + source_term_str + "\n")
     
     qudrature_num_points = (20, 20)
-    generate_points(domain=domain, num_points=(20, 20), qudrature_num_points=qudrature_num_points, u_gt_func=explicit_u_func_1, f_func=source_term, u_gt_expr=function_str, f_func_expr=source_term_str, chebyshev=True, dir=dir, training_data=True)
-    generate_points(domain=domain, num_points=(400,), qudrature_num_points=qudrature_num_points, u_gt_func=explicit_u_func_1, f_func=source_term, u_gt_expr=function_str, f_func_expr=source_term_str, chebyshev=False, dir=dir, training_data=False)
+    generate_points(domain=domain, num_points=(20, 20), f_qudrature_num_points=qudrature_num_points, u_gt_func=explicit_u_func_1, f_func=source_term, u_gt_expr=function_str, f_func_expr=source_term_str, u_chebyshev_mesh=True, save_dir=dir, training_data=True)
+    generate_points(domain=domain, num_points=(400,), f_qudrature_num_points=qudrature_num_points, u_gt_func=explicit_u_func_1, f_func=source_term, u_gt_expr=function_str, f_func_expr=source_term_str, u_chebyshev_mesh=False, save_dir=dir, training_data=False)
 
     print(dir + "data_train.pt")
     points = torch.load(dir + "data_train.pt")

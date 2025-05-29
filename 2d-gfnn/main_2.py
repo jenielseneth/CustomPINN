@@ -4,9 +4,9 @@ import torch
 from torch import nn
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
-from training_utils import MultiBndDatasetWrapper, train, test, MultiDatasetWrapper
+from training_utils import MultiBndDatasetWrapper, train_2, test_2
 from PINN import CustomPINN_Green2D
-from loss import DataPredLoss
+from loss import UpdatedDataPredLoss
 from datetime import datetime
 
 
@@ -15,41 +15,35 @@ if __name__ == "__main__":
     x_min, x_max = 0, 1 
     y_min, y_max = 0, 1
     domain = (x_min, x_max, y_min, y_max)
-    main_dir = "./res/20250527_1433/"
+    main_dir = "./res/20250529_1414/"
     model_dir = main_dir + f"models/model_{timestamp}/" 
     if not os.path.exists(main_dir):
         raise IsADirectoryError("The directory doesn't exist.")
-    
-    train_data = MultiBndDatasetWrapper(data_file_path=main_dir + "data/", data_file_name="data_train.pt", domain=domain)
-    train_f_values = train_data.f_values
-    train_f_meshes = train_data.f_meshes
-    test_data = MultiDatasetWrapper(data_file_path=main_dir + "data/", data_file_name="data_test.pt", domain=domain)
-    test_f_values = test_data.f_values
-    test_f_meshes = test_data.f_meshes
-    training_bs = 128
-    test_bs = 128
+    data_dir = main_dir + "data/"
+    train_data = MultiBndDatasetWrapper(data_file_path=data_dir + "train/", data_file_name="data_train.pt", domain=domain)
+    test_data = MultiBndDatasetWrapper(data_file_path=data_dir + "test/", data_file_name="data_test.pt", domain=domain)
+    training_bs = 1
+    test_bs = 1
     trainloader = DataLoader(train_data, batch_size=training_bs, shuffle=True)
     testloader = DataLoader(test_data, batch_size=test_bs, shuffle=True)
 
     hidden_channels = 32
-    model = CustomPINN_Green2D(4, 1, hidden_size=hidden_channels)
+    model = CustomPINN_Green2D(4, 1, hidden_size=hidden_channels, domain=domain)
 
     lr = 1e-2
     weight_decay = 1e-4
     step_size=100
     gamma=0.5
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = StepLR(optimizer, step_size=step_size, gamma=gamma)
-    loss_fn = DataPredLoss(num_eval_points=20)
+    loss_fn = UpdatedDataPredLoss()
     num_epochs = 300
 
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}\n-------------------------------")
-        total_train_loss = train(model=model, optimizer=optimizer, dataloader=trainloader,
-                loss_fn=loss_fn, scheduler=scheduler, f_values=train_f_values,
-                f_meshes=train_f_meshes, domain=domain)
-        total_test_loss = test(model=model, dataloader=testloader, loss_fn=loss_fn, 
-            f_values=test_f_values, f_meshes=test_f_meshes, domain=domain)
+        total_train_loss = train_2(model=model, optimizer=optimizer, dataloader=trainloader,
+                loss_fn=loss_fn, scheduler=scheduler, domain=domain)
+        total_test_loss = test_2(model=model, dataloader=testloader, loss_fn=loss_fn, domain=domain)
             
     
     if not os.path.exists(model_dir):
@@ -62,6 +56,8 @@ if __name__ == "__main__":
         f.write('Domain: ' + ', '.join(map(str,domain)) + "\n")
         f.write('Train Batch Size: ' + str(training_bs) + "\n")
         f.write('Test Batch Size: ' + str(test_bs) + "\n")
+        f.write('Length of Training Data: ' + len(train_data) + "\n")
+        f.write('Length of Test Data: ' + len(test_data) + "\n")
         f.write('Model Hidden Channels: ' + str(hidden_channels) + "\n")
         f.write('Number of Training Epochs: ' + str(num_epochs) + "\n")
         f.write('Optimizer Learning Rate: ' + str(lr) + "\n")

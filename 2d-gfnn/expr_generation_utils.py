@@ -22,18 +22,18 @@ x_sym, y_sym = sympy.symbols('x y')
 
 
 def get_diffusion_term_a_expr():
-    return -1
+    return 1
     return sympy.sin(x_sym*y_sym)
 
 def generate_u_expr(n_expr: int = 5):
     u_exprs = []
     for i in range(n_expr):
-        # expr = (
-        #     random.uniform(0.5, 5.0) * sympy.sin(random.randint(1, 5)*x_sym) * 
-        #     sympy.cos(random.randint(1, 5)*y_sym) +
-        #     random.uniform(0.1, 5.0) * x_sym**random.randint(1, 3) * y_sym**random.randint(1, 3)
-        # )
-        expr = (sympy.exp(-1/2*(20*(x_sym-0.5)**2 +20*(y_sym-0.5)**2))/(2*math.pi))
+        expr = (
+            random.uniform(0.5, 5.0) * sympy.sin(random.randint(1, 5)*x_sym) * 
+            sympy.cos(random.randint(1, 5)*y_sym) +
+            random.uniform(0.1, 5.0) * x_sym**random.randint(1, 3) * y_sym**random.randint(1, 3)
+        )
+        # expr = (sympy.exp(-1/2*(20*(x_sym-0.5)**2 +20*(y_sym-0.5)**2))/(2*math.pi))
         u_exprs.append(expr)
     return u_exprs
 
@@ -67,7 +67,7 @@ def get_f_expr(u_exprs, a_expr):
         u_yy = sympy.diff(u, y_sym, 2)
         a_x = sympy.diff(a_expr, x_sym)
         a_y = sympy.diff(a_expr, y_sym)
-        expr = u_x * a_x + a_expr * u_xx + u_y * a_y + a_expr * u_yy
+        expr = -(u_x * a_x + a_expr * u_xx + u_y * a_y + a_expr * u_yy)
         f_exprs.append(expr)
     return f_exprs
 

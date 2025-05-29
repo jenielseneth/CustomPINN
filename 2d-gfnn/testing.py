@@ -1,6 +1,6 @@
 from chebyshev import cheb_2d_impl, sample_chebyshev_points_2
 from data_generation_utils import sample_random_mesh_points, separate_collocation_boundary_points
-from loss import CustomDataPredLoss
+from loss import DataPredLoss
 import torch
 from expr_generation_utils import expr_to_func, generate_u_expr, get_diffusion_term_a_expr, get_f_expr, func_input_wrapper
 from pde_utils import evaluate_model, get_u_evaluation_func

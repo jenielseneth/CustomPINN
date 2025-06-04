@@ -4,7 +4,7 @@ import torch
 from torch import nn
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
-from training_utils import MultiBndDatasetWrapper, train_2, test_2
+from training_utils import MultiBndDatasetWrapper, train_w_bnd_loss, test_w_bnd_loss
 from PINN import CustomPINN_Green2D
 from loss import UpdatedDataPredLoss
 from datetime import datetime
@@ -15,7 +15,7 @@ if __name__ == "__main__":
     x_min, x_max = 0, 1 
     y_min, y_max = 0, 1
     domain = (x_min, x_max, y_min, y_max)
-    main_dir = "./res/20250529_1414/"
+    main_dir = "./res/20250604_1343/"
     model_dir = main_dir + f"models/model_{timestamp}/" 
     if not os.path.exists(main_dir):
         raise IsADirectoryError("The directory doesn't exist.")
@@ -29,21 +29,22 @@ if __name__ == "__main__":
 
     hidden_channels = 32
     model = CustomPINN_Green2D(4, 1, hidden_size=hidden_channels, domain=domain)
+    f_mesh_quadrature_points = (20,20)
+    loss_fn = UpdatedDataPredLoss(domain=domain, num_points=f_mesh_quadrature_points)
 
     lr = 1e-2
     weight_decay = 1e-4
     step_size=100
     gamma=0.5
+    num_epochs = 300
     optimizer = torch.optim.Adam(params=model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = StepLR(optimizer, step_size=step_size, gamma=gamma)
-    loss_fn = UpdatedDataPredLoss()
-    num_epochs = 300
 
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}\n-------------------------------")
-        total_train_loss = train_2(model=model, optimizer=optimizer, dataloader=trainloader,
+        total_train_loss = train_w_bnd_loss(model=model, optimizer=optimizer, dataloader=trainloader,
                 loss_fn=loss_fn, scheduler=scheduler, domain=domain)
-        total_test_loss = test_2(model=model, dataloader=testloader, loss_fn=loss_fn, domain=domain)
+        total_test_loss = test_w_bnd_loss(model=model, dataloader=testloader, loss_fn=loss_fn, domain=domain)
             
     
     if not os.path.exists(model_dir):
@@ -56,8 +57,8 @@ if __name__ == "__main__":
         f.write('Domain: ' + ', '.join(map(str,domain)) + "\n")
         f.write('Train Batch Size: ' + str(training_bs) + "\n")
         f.write('Test Batch Size: ' + str(test_bs) + "\n")
-        f.write('Length of Training Data: ' + len(train_data) + "\n")
-        f.write('Length of Test Data: ' + len(test_data) + "\n")
+        f.write('Length of Training Data: ' + str(len(train_data)) + "\n")
+        f.write('Length of Test Data: ' + str(len(test_data)) + "\n")
         f.write('Model Hidden Channels: ' + str(hidden_channels) + "\n")
         f.write('Number of Training Epochs: ' + str(num_epochs) + "\n")
         f.write('Optimizer Learning Rate: ' + str(lr) + "\n")

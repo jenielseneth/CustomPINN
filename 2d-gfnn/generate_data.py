@@ -55,16 +55,15 @@ def generate_data(u_expressions: list, u_bnd_expressions: list, f_expressions: l
                         uniform_f_quadrature=uniform_f_quadrature, f_qudrature_num_points=f_mesh_num_points)
         
         name = "data_train.pt" if train_data else "data_test.pt"
+        plot_title = "Training " if train_data else "Test "
         points = torch.load(subdir + name)
         u_coordinates = points["coordinates"]
         u_values = points["u_values"]
-        plot_points(u_coordinates, u_values, title=f'Training u_{i}(x) Data')
+        plot_points(u_coordinates, u_values, title=plot_title + f'u_{i}(x) Data')
         
         f_values = points["f_values"]
         f_mesh = points["f_mesh"]
-        plot_points(f_mesh, f_values,title=f'Training f_{i}(x) Data')
-
-
+        plot_points(f_mesh, f_values,title=plot_title + f'f_{i}(x) Data')
 
 
 if __name__ == "__main__":  
@@ -99,7 +98,8 @@ if __name__ == "__main__":
     qudrature_num_points = (20, 20)
 
     train_chebyshev = True  ##Generate Training data using Chebyshev nodes - Test data is generated using random points.
-    uniform_quadrature = False  ##Generate Source term data using a uniform mesh.
+    uniform_f_quadrature = False  ##Generate Source term data using a uniform mesh.
+    f_mesh_points = None
 
     plot_uniform_mesh = sample_uniform_mesh_points((0, 1, 0, 1), (20, 20))
     a_func_values = func_input_wrapper(expr_to_func([a_expr]))[0](plot_uniform_mesh)
@@ -118,9 +118,11 @@ if __name__ == "__main__":
     #Train data
     generate_data(u_expressions=u_exprs, u_bnd_expressions=u_bnd_exprs, f_expressions=f_exprs,
                   a_expression=a_expr, main_save_dir=train_dir, domain=domain, mesh_size=training_mesh_size,
-                  train_data=True, u_chebyshev_mesh=True)
+                  train_data=True, u_chebyshev_mesh=True, 
+                  uniform_f_quadrature=uniform_f_quadrature, f_mesh_num_points=f_mesh_points)
 
     #Test data
     generate_data(u_expressions=u_exprs, u_bnd_expressions=u_bnd_exprs, f_expressions=f_exprs,
                   a_expression=a_expr, main_save_dir=test_dir, domain=domain, mesh_size=training_mesh_size,
-                  train_data=False, u_chebyshev_mesh=True)
+                  train_data=False, u_chebyshev_mesh=True, 
+                  uniform_f_quadrature=uniform_f_quadrature, f_mesh_num_points=f_mesh_points)

@@ -1,8 +1,7 @@
 import math
 import torch
 
-from data_generation_utils import sample_random_mesh_points
-from generate_data import source_term
+from data_generation_utils import sample_chebyshev_points, sample_chebyshev_points_3, sample_random_mesh_points
 from plot_utils import plot_points
 
 def sample_chebyshev_points_2(domain, num_points: tuple):
@@ -18,12 +17,10 @@ def sample_chebyshev_points_2(domain, num_points: tuple):
     points_y /= 2
     points_x = points_x * (x_max-x_min) + x_min
     points_y = points_y * (y_max-y_min) + y_min
-    # xx, yy = torch.meshgrid(points_x, points_y, indexing='ij')
     xy = torch.zeros((x_num, y_num, 2))
     for i in range(x_num):
         for j in range(y_num):
             xy[i,j] = torch.tensor([points_x[i], points_y[j]])
-    # result = torch.column_stack((xx.ravel(), yy.ravel()))
     return xy
 
 def cheb_1d_points(domain, num_points: int):
@@ -82,11 +79,71 @@ def cheb_2d_impl(eval_points, values, domain):
         res2[i] = cheb_1d_impl(eval_x[i:i+1], res1[:, i], domain[0:2])
     return res2
 
+
+def clenshaw_curtis_weights(n):
+    '''
+    n: we define n + 1 quadrature nodes, and calculate weights using k = 0, 1, ..., n
+    '''
+    c = torch.ones(n+1)
+    c[1:-1] = 2
+    
+    n_2 = math.floor(n/2)
+    b = torch.ones(n_2)
+    b[0:-1] = 2
+
+    k = torch.linspace(0,n,n+1) 
+    j = torch.linspace(1, n_2, n_2)
+
+    kk, jj = torch.meshgrid(k, j, indexing='ij')
+    cos_mat = torch.cos(2*kk*jj*math.pi/n)
+    norm = (1/(4*jj**2-1))
+    weights = 1 - torch.matmul(cos_mat * norm, b)
+    weights *= c/n
+    return weights 
+
+def clenshaw_curtis_weights_2d(num_points):
+    '''
+    Designed to be coupled with sample_chebyshev_points_3
+    '''
+    x_num, y_num = num_points
+    w_x = clenshaw_curtis_weights(x_num)
+    w_y = clenshaw_curtis_weights(y_num)
+    # w_y = torch.ones_like(w_y) 
+    weights = w_y[:, None]*w_x # Returns in ij format, i.e. weights[i, j] gets you weights at x_j, y_i (how a matrix parallels the mesh geometrically)
+    return weights.ravel()   #Unravels it so that weights[start:start+x_num] gives you the x_num weights for a specific y value scaled by that y values own weight.
+
+
 if __name__ == "__main__":
+
+
+    #  Example usage
+    f = lambda x, y: torch.exp(x + y)
+    a, b = -1000, 1.0
+    c, d = -1000, 1.0
+    n = 4000
+    
+    area_ratio = (b-a)*(d-c)/(4)
+
+    weights = clenshaw_curtis_weights_2d((n-1,n-1)) * area_ratio
+    points= sample_chebyshev_points_3((a, b, c, d), (n, n))
+    f_vals = f(points[:,0], points[:,1])
+    eval = (f_vals*weights).sum()
+    gt = (torch.exp(torch.tensor(b))-torch.exp(torch.tensor(a)))**2
+    print(eval, gt)
+    print(eval-gt)
+
+
+    assert False
+
     domain = (0,1,0,1)
     eval_points = sample_random_mesh_points(domain, 30)
     cheb_points = sample_chebyshev_points_2(domain, (20, 20))
     
+    def source_term(points):
+        x, y = points[..., 0], points[..., 1]
+        print(x)
+        return x
+
     values = source_term(cheb_points)
     eval_values = cheb_2d_impl(eval_points=eval_points, values=values, domain=domain)
     plot_points(cheb_points.view(400, 2), values.view(400))

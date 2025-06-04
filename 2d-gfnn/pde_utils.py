@@ -65,8 +65,24 @@ def eval_u_integral_2(greens_function: Callable[[Tuple[float, float], Tuple[floa
     '''
     bs, _ = coordinates.size()
 
-    x_input = torch.zeros_like(f_mesh[None, :, :])+coordinates[:, None, :] #bxfx2 Tensor
-    y_input = f_mesh[None, :, :].expand(bs, -1, -1) #bxfx2 Tensor
+    x_input = torch.zeros_like(f_mesh[None, :, :])+coordinates[:, None, :] #b x f x2 Tensor
+    y_input = f_mesh[None, :, :].expand(bs, -1, -1) #b x f x 2 Tensor
     greens_function_eval = greens_function(x_input, y_input)
     pred = torch.sum(greens_function_eval*f_values, -1)
+    return pred
+
+def eval_u_integral_3(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], coordinates, f_mesh, f_values, weights):
+    '''
+    Uses predetermined weights. For a batch of coordinates on a single f_mesh.
+    Instead of filtering the mesh, we add slight noise to the coordinates so 
+    coordinate: bx2 Tensor
+    f_mesh: fx2 Tensor
+    f_values: f Tensor
+    '''
+    bs, _ = coordinates.size()
+
+    x_input = torch.zeros_like(f_mesh[None, :, :])+coordinates[:, None, :] #b x f x2 Tensor
+    y_input = f_mesh[None, :, :].expand(bs, -1, -1) #b x f x 2 Tensor
+    greens_function_eval = greens_function(x_input, y_input)
+    pred = torch.sum(greens_function_eval*f_values*weights, -1)
     return pred

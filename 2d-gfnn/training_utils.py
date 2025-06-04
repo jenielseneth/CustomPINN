@@ -137,7 +137,7 @@ class MultiBndDatasetWrapper(Dataset):
 
 
 
-def train_2(model, optimizer, dataloader: DataLoader, loss_fn: UpdatedDataPredLoss, 
+def train_w_bnd_loss(model, optimizer, dataloader: DataLoader, loss_fn: UpdatedDataPredLoss, 
             domain, scheduler = None):
     size = len(dataloader.dataset)
     model.train()
@@ -164,7 +164,7 @@ def train_2(model, optimizer, dataloader: DataLoader, loss_fn: UpdatedDataPredLo
     
     return total_loss
 
-def test_2(dataloader, model, loss_fn: UpdatedDataPredLoss, domain):
+def test_w_bnd_loss(dataloader, model, loss_fn: UpdatedDataPredLoss, domain):
     size = len(dataloader.dataset)
     model.eval()
     test_loss = 0

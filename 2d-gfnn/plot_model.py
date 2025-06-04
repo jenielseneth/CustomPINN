@@ -9,9 +9,9 @@ from expr_generation_utils import expr_to_func, func_input_wrapper
 from training_utils import MultiBndDatasetWrapper, MultiDatasetWrapper
 import sympy
 
-main_dir = "./res/20250529_1414/"
+main_dir = "./res/20250530_1418/"
 data_dir = main_dir + "data/test/"
-model_dir = main_dir + "models/model_20250529_141603/"
+model_dir = main_dir + "models/model_20250530_143058/"
 figure_dir = model_dir + "figures/"
 
 domain = (0,1,0,1)

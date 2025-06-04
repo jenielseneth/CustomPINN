@@ -80,14 +80,16 @@ class CustomPINN_Green2D(nn.Module):
 
     def forward(self, x, y):
         '''
-        x is the input coordinate for u(x) = int (G(x,y) * f(y) dy)
+        x is the input coordinate for u(x) = int (G(x,y) * f(y) dy).
         y is the parameter along which we integrate.
+        x: b x f x 2 Tensor; b - batch size of coordinates, f - size of f_mesh, 2 - 2D
+        y: b x f x 2 Tensor; b - batch size of coordinates, f - size of f_mesh, 2 - 2D
         '''
         phi = self.phi(x,y)
         psi = self.psi(x,y)
-        weight = (self.quadrature_weights(y)**2) / self.area
+        # weight = (self.quadrature_weights(y)**2) / self.area
         log_term = torch.log((torch.abs(x-y).sum(-1))+ 1e-8).view(phi.shape)
-        val = (phi * log_term + psi) * weight
+        val = (phi * log_term + psi)
         if self.output_size == 1:
             return val[...,0]
         else:

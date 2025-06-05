@@ -2,8 +2,8 @@ import torch
 from tqdm import tqdm
 
 from plot_utils import plot_multiple_points, plot_points
-from pde_utils import eval_u_integral_2, eval_u_integral_3
-from chebyshev import clenshaw_curtis_weights_2d
+from pde_utils import bnd_eval_gf_integral
+from chebyshev_utils import clenshaw_curtis_weights_2d
 
 # class DataPredLoss(object):
 #     def __init__(self, num_eval_points):
@@ -16,12 +16,13 @@ from chebyshev import clenshaw_curtis_weights_2d
 #         # plot_multiple_points([coordinates, coordinates], values_list=[u_pred, u], title_list=["Predicted Values", "Ground Truth"])
 #         return diff
     
-class UpdatedDataPredLoss(object):
-    def __init__(self, domain, num_points):
+class DataPredLoss(object):
+    def __init__(self, domain, num_points, l_weights: bool):
         super().__init__()
         area_ratio = (domain[1]-domain[0])*(domain[3]-domain[2])/(4)
         x_num, y_num = num_points
         self.weights = clenshaw_curtis_weights_2d((x_num-1, y_num-1)) * area_ratio
+        self.l_weights = l_weights
 
     def __call__(self, greens_function_approx, f_values_batch, f_mesh_batch, coordinates_batch, u_batch, domain, *args, **kwargs):
         total_loss = 0
@@ -29,8 +30,34 @@ class UpdatedDataPredLoss(object):
             if len(coordinates) == 0:
                 loss = 0
             else:
-                # u_pred = eval_u_integral_2(greens_function=greens_function_approx, f_values=f_values_batch[i], f_mesh=f_mesh_batch[i], coordinates=coordinates)
-                u_pred = eval_u_integral_3(greens_function=greens_function_approx, f_values=f_values_batch[i], f_mesh=f_mesh_batch[i], coordinates=coordinates, weights=self.weights)
+                if self.l_weights:
+                    u_pred = bnd_eval_gf_integral(greens_function=greens_function_approx, f_values=f_values_batch[i], f_mesh=f_mesh_batch[i], coordinates=coordinates)
+                else:
+                    u_pred = bnd_eval_gf_integral(greens_function=greens_function_approx, f_values=f_values_batch[i], f_mesh=f_mesh_batch[i], coordinates=coordinates, weights=self.weights)
+                loss = torch.nn.functional.mse_loss(u_pred, u_batch[i])
+            # plot_multiple_points([coordinates, coordinates], values_list=[u_pred, u_batch[i]], title_list=["Predicted Collocation Values", "Ground Collocation Truth"])
+            total_loss += loss
+        return total_loss
+    
+
+class BndDataPredLoss(object):
+    def __init__(self, domain, num_points, l_weights: bool):
+        super().__init__()
+        area_ratio = (domain[1]-domain[0])*(domain[3]-domain[2])/(4)
+        x_num, y_num = num_points
+        self.weights = clenshaw_curtis_weights_2d((x_num-1, y_num-1)) * area_ratio #We assume the weights are clenshaw-curtis weights
+        self.l_weights = l_weights
+
+    def __call__(self, greens_function_approx, f_values_batch, f_mesh_batch, coordinates_batch, u_batch, domain, *args, **kwargs):
+        total_loss = 0
+        for i, coordinates in enumerate(coordinates_batch):
+            if len(coordinates) == 0:
+                loss = 0
+            else:
+                if self.l_weights:
+                    u_pred = bnd_eval_gf_integral(greens_function=greens_function_approx, f_values=f_values_batch[i], f_mesh=f_mesh_batch[i], coordinates=coordinates)
+                else:
+                    u_pred = bnd_eval_gf_integral(greens_function=greens_function_approx, f_values=f_values_batch[i], f_mesh=f_mesh_batch[i], coordinates=coordinates, weights=self.weights)
                 loss = torch.nn.functional.mse_loss(u_pred, u_batch[i])
             # plot_multiple_points([coordinates, coordinates], values_list=[u_pred, u_batch[i]], title_list=["Predicted Collocation Values", "Ground Collocation Truth"])
             total_loss += loss

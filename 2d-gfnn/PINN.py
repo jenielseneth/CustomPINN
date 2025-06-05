@@ -67,16 +67,17 @@ class MLP(nn.Module):
 
     
 class CustomPINN_Green2D(nn.Module):
-    def __init__(self, dims: int, output_size: int, hidden_size: int, domain: tuple):        
+    def __init__(self, dims: int, output_size: int, hidden_size: int, num_layers: int,  domain: tuple, l_weights: bool):        
         super(CustomPINN_Green2D, self).__init__()
         self.dims = dims
         self.output_size = output_size
         self.hidden_size = hidden_size
         self.domain = domain
         self.area = (domain[3]-domain[2])*(domain[1]-domain[0])
-        self.phi = PINN_NN(input_size=dims, hidden_size=hidden_size, output_size=output_size, num_layers=5)
-        self.psi = PINN_NN(input_size=dims, hidden_size=hidden_size, output_size=output_size, num_layers=5)
-        self.quadrature_weights = MLP(input_size=2, hidden_size=32, output_size=1, num_layers=5)
+        self.phi = PINN_NN(input_size=dims, hidden_size=hidden_size, output_size=output_size, num_layers=num_layers)
+        self.psi = PINN_NN(input_size=dims, hidden_size=hidden_size, output_size=output_size, num_layers=num_layers)
+        self.l_weights = l_weights
+        self.quadrature_weights = MLP(input_size=2, hidden_size=32, output_size=1, num_layers=num_layers)
 
     def forward(self, x, y):
         '''
@@ -87,9 +88,11 @@ class CustomPINN_Green2D(nn.Module):
         '''
         phi = self.phi(x,y)
         psi = self.psi(x,y)
-        # weight = (self.quadrature_weights(y)**2) / self.area
-        log_term = torch.log((torch.abs(x-y).sum(-1))+ 1e-8).view(phi.shape)
+        log_term = torch.log((torch.sqrt(((x-y)**2).sum(-1)))+ 1e-8).view(phi.shape)
         val = (phi * log_term + psi)
+        if self.l_weights == True:
+            weight = (self.quadrature_weights(y)**2) / self.area
+            val *= weight
         if self.output_size == 1:
             return val[...,0]
         else:

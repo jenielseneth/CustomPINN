@@ -4,7 +4,7 @@ import torch
 import random
 import os
 
-from loss import BndDataPredLoss, DataPredLoss
+from loss import BndDataPredLoss
 
 
 class DatasetWrapper(Dataset):
@@ -138,34 +138,6 @@ class MultiBndDatasetWrapper(Dataset):
         ret_item = {"col_crd": self.coordinates[index], "col_u_vals": self.u_values[index], "bnd_crd": self.bnd_coordinates[index], 
                     "bnd_u_vals": self.u_bnd_values[index], "f_vals": self.f_values[index], "f_mesh": self.f_meshes[index]}
         return ret_item
-
-
-def train(model, optimizer, dataloader: DataLoader, loss_fn: DataPredLoss, 
-            domain, scheduler = None):
-    size = len(dataloader.dataset)
-    model.train()
-    current_num = 0
-    total_loss = 0
-    for i, item in enumerate(dataloader):
-        # Compute prediction and loss
-            col_loss = loss_fn(greens_function_approx=model, domain=domain, f_values_batch=item["f_vals"], 
-                        f_mesh_batch=item["f_mesh"], coordinates_batch=item["col_crd"],  u_batch=item["col_u_vals"])
-            bnd_loss = loss_fn(greens_function_approx=model, domain=domain, f_values_batch=item["f_vals"], 
-                        f_mesh_batch=item["f_mesh"], coordinates_batch=item["bnd_crd"],  u_batch=torch.zeros_like(item["bnd_u_vals"]))
-            loss = col_loss + bnd_loss
-            # Backpropagation
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            if scheduler is not None:
-                scheduler.step()
-
-            loss = loss.item()
-            current_num += 1
-            print(f"\rAvg Train Loss per sample: {loss:>7f}  [{current_num:>5d}/{size:>5d}] \n", end="")
-            total_loss += loss
-    
-    return total_loss
 
 
 

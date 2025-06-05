@@ -4,9 +4,9 @@ import torch
 from torch import nn
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
-from training_utils import MultiBndDatasetWrapper, MultiDatasetWrapper, train_w_bnd_loss, test_w_bnd_loss
+from training_utils import MultiBndDatasetWrapper, MultiDatasetWrapper, test, train, train_w_bnd_loss, test_w_bnd_loss
 from PINN import CustomPINN_Green2D
-from loss import BndDataPredLoss
+from loss import BndDataPredLoss, DataPredLoss
 from datetime import datetime
 
 
@@ -24,10 +24,10 @@ if __name__ == "__main__":
     train_data = MultiDatasetWrapper(data_file_path=data_dir + "train/", data_file_name="data_train.pt", domain=domain)
     test_data = MultiDatasetWrapper(data_file_path=data_dir + "test/", data_file_name="data_test.pt", domain=domain)
 
-    train_data = MultiBndDatasetWrapper(data_file_path=data_dir + "train/", data_file_name="data_train.pt", domain=domain)
-    test_data = MultiBndDatasetWrapper(data_file_path=data_dir + "test/", data_file_name="data_test.pt", domain=domain)
-    training_bs = 1
-    test_bs = 1
+    # train_data = MultiBndDatasetWrapper(data_file_path=data_dir + "train/", data_file_name="data_train.pt", domain=domain)
+    # test_data = MultiBndDatasetWrapper(data_file_path=data_dir + "test/", data_file_name="data_test.pt", domain=domain)
+    training_bs = 128
+    test_bs = 128
     trainloader = DataLoader(train_data, batch_size=training_bs, shuffle=True)
     testloader = DataLoader(test_data, batch_size=test_bs, shuffle=True)
 
@@ -36,7 +36,7 @@ if __name__ == "__main__":
     learn_quadrature_weights = False # Bool to determine whether to learn quadrature weights or use precomputed.
     model = CustomPINN_Green2D(4, 1, hidden_size=hidden_channels, num_layers=num_layers, domain=domain, l_weights=learn_quadrature_weights)
     f_mesh_quadrature_points = (20,20)
-    loss_fn = BndDataPredLoss(domain=domain, num_points=f_mesh_quadrature_points, l_weights=learn_quadrature_weights)
+    loss_fn = DataPredLoss(domain=domain, num_points=f_mesh_quadrature_points, l_weights=learn_quadrature_weights)
 
     lr = 1e-2
     weight_decay = 1e-4
@@ -48,9 +48,9 @@ if __name__ == "__main__":
 
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}\n-------------------------------")
-        total_train_loss = train_w_bnd_loss(model=model, optimizer=optimizer, dataloader=trainloader,
+        total_train_loss = train(model=model, optimizer=optimizer, dataloader=trainloader,
                 loss_fn=loss_fn, scheduler=scheduler, domain=domain)
-        total_test_loss = test_w_bnd_loss(model=model, dataloader=testloader, loss_fn=loss_fn, domain=domain)
+        total_test_loss = test(model=model, dataloader=testloader, loss_fn=loss_fn, domain=domain)
             
     
     if not os.path.exists(model_dir):

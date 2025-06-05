@@ -13,7 +13,7 @@ import sympy
 
 main_dir = "./res/20250604_1343/"
 data_dir = main_dir + "data/test/"
-model_dir = main_dir + "models/model_20250604_181238/"
+model_dir = main_dir + "models/model_20250605_143716/"
 figure_dir = model_dir + "figures/"
 
 model_info_file = open(model_dir + "main_info.txt", "r")
@@ -28,7 +28,7 @@ model.eval()
 test_data = MultiBndDatasetWrapper(data_file_path=data_dir, data_file_name="data_test.pt", domain=domain)
 
 ##Get data and ground-truth u(x)
-i = 2
+i = 4
 assert i < len(test_data)
 data_info_file = open(data_dir + str(i) + "/info.txt", "r")
 data_info_file_lines = data_info_file.readlines()

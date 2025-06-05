@@ -88,7 +88,8 @@ class MultiDatasetWrapper(Dataset):
         # write your code to return each batch element
 
         # write your code to return each batch element
-        ret_item = {"crd": self.coordinates[index], "u_vals": self.u_values[index], "f_inds": self.f_inds[index]}
+        ret_item = {"crd": self.coordinates[index], "u_vals": self.u_values[index], "f_inds": self.f_inds[index], 
+                    "f_vals": self.f_values[self.f_inds[index]], "f_mesh": self.f_meshes[self.f_inds[index]]}
         return ret_item
         return self.coordinates[index], self.u_values[index], self.f_inds[index]
 
@@ -148,11 +149,9 @@ def train(model, optimizer, dataloader: DataLoader, loss_fn: DataPredLoss,
     total_loss = 0
     for i, item in enumerate(dataloader):
         # Compute prediction and loss
-            col_loss = loss_fn(greens_function_approx=model, domain=domain, f_values_batch=item["f_vals"], 
-                        f_mesh_batch=item["f_mesh"], coordinates_batch=item["col_crd"],  u_batch=item["col_u_vals"])
-            bnd_loss = loss_fn(greens_function_approx=model, domain=domain, f_values_batch=item["f_vals"], 
-                        f_mesh_batch=item["f_mesh"], coordinates_batch=item["bnd_crd"],  u_batch=torch.zeros_like(item["bnd_u_vals"]))
-            loss = col_loss + bnd_loss
+            bs = len(item["crd"])
+            loss = loss_fn(greens_function_approx=model, f_values_batch=item["f_vals"], 
+                        f_meshes_batch=item["f_mesh"], coordinates_batch=item["crd"],  u_batch=item["u_vals"])
             # Backpropagation
             optimizer.zero_grad()
             loss.backward()
@@ -161,12 +160,26 @@ def train(model, optimizer, dataloader: DataLoader, loss_fn: DataPredLoss,
                 scheduler.step()
 
             loss = loss.item()
-            current_num += 1
-            print(f"\rAvg Train Loss per sample: {loss:>7f}  [{current_num:>5d}/{size:>5d}] \n", end="")
+            current_num += bs
+            print(f"\rAvg Train Loss per sample: {loss / bs :>7f}  [{current_num:>5d}/{size:>5d}] \n", end="")
             total_loss += loss
     
     return total_loss
 
+
+def test(dataloader, model, loss_fn: DataPredLoss, domain):
+    size = len(dataloader.dataset)
+    model.eval()
+    test_loss = 0
+    with torch.no_grad():
+        for item in dataloader:
+            loss = loss_fn(greens_function_approx=model, f_values_batch=item["f_vals"], 
+                        f_meshes_batch=item["f_mesh"], coordinates_batch=item["crd"],  u_batch=item["u_vals"])
+            test_loss += loss.item()
+
+    print(f"Avg Test Loss per sample: {test_loss/ size :>8f} \n", end="")
+
+    return test_loss
 
 
 def train_w_bnd_loss(model, optimizer, dataloader: DataLoader, loss_fn: BndDataPredLoss, 

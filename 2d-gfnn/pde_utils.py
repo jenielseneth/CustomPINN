@@ -55,20 +55,25 @@ def evaluate_model(model, f_values, f_meshes, coordinates, f_inds, domain):
 #         evaluation[i] = eval_u_integral(coordinate=crd, domain=domain, greens_function=model, f_values=f_values, f_mesh=f_mesh)
 #     return evaluation
 
-def eval_gf_integral(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], coordinates, f_meshes, f_values, f_inds):
+def eval_gf_integral(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], coordinates, f_meshes, f_values, weights=None):
 
     '''
     Calculates the predicted values using the learned Green's Function model.
+    This function evaluates the integral of the Green's function using a quadrature rule.
+    coordinates: bx2 Tensor
+    f_meshes: bxf_sizex2 Tensors, where f_size is the number of points on the source term mesh.
+    f_values: bxf_size Tensor, where f_size is the number of points on the source term mesh.
+    weights: f_size Tensor of weights for the quadrature rule, if None, we assume the model learns the weights.
     '''
-    evaluation = torch.zeros(len(coordinates))
-    for i, coordinate in enumerate(coordinates):
-        ind = f_inds[i]
-        x_input = torch.zeros_like(f_meshes[ind][None, :, :]) + coordinate 
-        y_input = f_meshes[ind]
-        greens_function_eval = greens_function(x_input, y_input)
-        pred = torch.sum(greens_function_eval*f_values[ind])
-        evaluation[i] = pred
-    return evaluation
+
+    x_input = torch.zeros_like(f_meshes) + coordinates[:, None, :]  # b x f x 2 Tensor 
+    y_input = f_meshes # b x f x 2 Tensor
+    greens_function_eval = greens_function(x_input, y_input)
+    integral = greens_function_eval*f_values  # b x f Tensor
+    if weights is not None:
+        integral = integral * weights[None, :]  # b x f Tensor, weights should be broadcasted
+    pred = torch.sum(integral, -1)  # b Tensor, sum over the f dimension
+    return pred
 
 def bnd_eval_gf_integral(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], coordinates, f_mesh, f_values, weights=None):
     '''

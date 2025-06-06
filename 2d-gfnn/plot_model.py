@@ -6,14 +6,15 @@ from plot_utils import plot_multiple_points
 from data_generation_utils import sample_uniform_mesh_points
 from pde_utils import bnd_eval_gf_integral
 from expr_generation_utils import expr_to_func, func_input_wrapper
-from training_utils import MultiBndDatasetWrapper, MultiDatasetWrapper
+from training_utils import MultiBndDatasetWrapper, UpdatedMultiDatasetWrapper
 from chebyshev_utils import clenshaw_curtis_weights_2d
 from random_utils import find_line_with_keyword
 import sympy
 
-main_dir = "./res/20250604_1343/"
-data_dir = main_dir + "data/test/"
-model_dir = main_dir + "models/model_20250605_143716/"
+main_dir = "./res/20250605_1820/"
+# data_dir = main_dir + "data/test/"
+data_dir = main_dir + "data/"
+model_dir = main_dir + "models/model_20250605_183157/"
 figure_dir = model_dir + "figures/"
 
 model_info_file = open(model_dir + "main_info.txt", "r")
@@ -25,21 +26,31 @@ model = CustomPINN_Green2D(4, 1, 32, num_layers=3, domain=domain, l_weights=l_we
 model.load_state_dict(torch.load(model_dir + "model.pth"))
 model.eval()
 
-test_data = MultiBndDatasetWrapper(data_file_path=data_dir, data_file_name="data_test.pt", domain=domain)
+# test_data = MultiBndDatasetWrapper(data_file_path=data_dir, data_file_name="data_test.pt", domain=domain)
 
-##Get data and ground-truth u(x)
-i = 4
-assert i < len(test_data)
-data_info_file = open(data_dir + str(i) + "/info.txt", "r")
-data_info_file_lines = data_info_file.readlines()
-u_func_txt = data_info_file_lines[1].split(":", 1)[1]
+# ##Get data and ground-truth u(x)
+# i = 4
+# data = test_data[i]
+# f_values, f_mesh = data["f_vals"], data["f_mesh"]
+# col_crd, col_u_vals = data["col_crd"], data["col_u_vals"]
+# assert i < len(test_data)
+# data_info_file = open(data_dir + str(i) + "/info.txt", "r")
+# data_info_file_lines = data_info_file.readlines()
+# u_func_txt = data_info_file_lines[1].split(":", 1)[1]
+# u_func = func_input_wrapper(expr_to_func([sympy.sympify(u_func_txt)]))[0]
+# f_func_txt = data_info_file_lines[4].split(":", 1)[1]
+# f_func = func_input_wrapper(expr_to_func([sympy.sympify(f_func_txt)]))[0]
+
+i = 9
+u_func_txt = find_line_with_keyword(file_path=data_dir+"test_fnc.txt", keyword=str(i+1), index=i).split(";", 1)[0].split(":", 1)[1]
 u_func = func_input_wrapper(expr_to_func([sympy.sympify(u_func_txt)]))[0]
-f_func_txt = data_info_file_lines[4].split(":", 1)[1]
+f_func_txt = find_line_with_keyword(file_path=data_dir+"test_fnc.txt", keyword=str(i+1), index=i).split(";", 1)[1].split(":", 1)[1]
 f_func = func_input_wrapper(expr_to_func([sympy.sympify(f_func_txt)]))[0]
 
-data = test_data[i]
-f_values, f_mesh = data["f_vals"], data["f_mesh"]
-col_crd, col_u_vals = data["col_crd"], data["col_u_vals"]
+test_data = UpdatedMultiDatasetWrapper(data_file_path=data_dir, data_file_name="data_test.pt", domain=domain)
+f_values, f_mesh = test_data.f_values[i], test_data.f_meshes[i]
+
+
 
 # Uniform mesh for plotting
 uniform_mesh = sample_uniform_mesh_points(domain, num_points=(50,50))

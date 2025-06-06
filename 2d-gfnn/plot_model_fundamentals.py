@@ -10,9 +10,9 @@ from training_utils import MultiBndDatasetWrapper, MultiDatasetWrapper
 from random_utils import find_line_with_keyword
 import sympy
 
-main_dir = "./res/20250604_1343/"
+main_dir = "./res/20250605_1820/"
 data_dir = main_dir + "data/test/"
-model_dir = main_dir + "models/model_20250604_181238/"
+model_dir = main_dir + "models/model_20250605_183157/"
 figure_dir = model_dir + "figures/"
 
 model_info_file = open(model_dir + "main_info.txt", "r")
@@ -23,8 +23,6 @@ domain = (0,1,0,1)
 model = CustomPINN_Green2D(4, 1, 32, num_layers=3, domain=domain, l_weights=l_weights)
 model.load_state_dict(torch.load(model_dir + "model.pth"))
 model.eval()
-
-test_data = MultiBndDatasetWrapper(data_file_path=data_dir, data_file_name="data_test.pt", domain=domain)
 
 
 

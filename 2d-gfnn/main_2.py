@@ -4,7 +4,7 @@ import torch
 from torch import nn
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
-from training_utils import MultiBndDatasetWrapper, MultiDatasetWrapper, test, train, train_w_bnd_loss, test_w_bnd_loss
+from training_utils import UpdatedMultiDatasetWrapper, MultiDatasetWrapper, test, train, train_w_bnd_loss, test_w_bnd_loss
 from PINN import CustomPINN_Green2D
 from loss import BndDataPredLoss, DataPredLoss
 from datetime import datetime
@@ -15,15 +15,14 @@ if __name__ == "__main__":
     x_min, x_max = 0, 1 
     y_min, y_max = 0, 1
     domain = (x_min, x_max, y_min, y_max)
-    main_dir = "./res/20250604_1343/"
+    main_dir = "./res/20250605_1820/"
     model_dir = main_dir + f"models/model_{timestamp}/" 
     if not os.path.exists(main_dir):
         raise IsADirectoryError("The directory doesn't exist.")
     data_dir = main_dir + "data/"
 
-    train_data = MultiDatasetWrapper(data_file_path=data_dir + "train/", data_file_name="data_train.pt", domain=domain)
-    test_data = MultiDatasetWrapper(data_file_path=data_dir + "test/", data_file_name="data_test.pt", domain=domain)
-
+    train_data = UpdatedMultiDatasetWrapper(data_file_path=data_dir, data_file_name="data_train.pt", domain=domain)
+    test_data = UpdatedMultiDatasetWrapper(data_file_path=data_dir, data_file_name="data_test.pt", domain=domain)
     # train_data = MultiBndDatasetWrapper(data_file_path=data_dir + "train/", data_file_name="data_train.pt", domain=domain)
     # test_data = MultiBndDatasetWrapper(data_file_path=data_dir + "test/", data_file_name="data_test.pt", domain=domain)
     training_bs = 128

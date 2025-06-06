@@ -37,23 +37,20 @@ def generate_u_expr(n_expr: int = 5):
         u_exprs.append(expr)
     return u_exprs
 
-def get_u_bnd_expr(n_expr: int = 5):
-    u_bnd_exprs = []
-    for _ in range(n_expr):
-        expr = 0
-        u_bnd_exprs.append(expr)
-    return u_bnd_exprs
+def get_u_bnd_expr():
+    expr = 0
+    return expr
 
-def generate_u_expr_w_bnd(domain, u_bnd_exprs):
+def generate_u_expr_w_bnd(domain, u_bnd_expr, n_expr: int = 5):
     '''
     Generate u(x) expressions based on boundary conditions. Currently only implemented for constant boundary conditions.
     '''
     x_min, x_max, y_min, y_max = domain
     u_exprs = []
-    for i in range(len(u_bnd_exprs)):
+    for i in range(n_expr):
         expr = (100* ((x_sym-x_max)**random.randint(1, 2))*((x_sym-x_min)**random.randint(1, 2))
                 * ((y_sym-y_max)**random.randint(1, 2))*((y_sym-y_min)**random.randint(1, 2))
-                + u_bnd_exprs[i]
+                + u_bnd_expr
         )
         u_exprs.append(expr)
     return u_exprs

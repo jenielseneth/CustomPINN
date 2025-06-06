@@ -91,8 +91,38 @@ class MultiDatasetWrapper(Dataset):
         ret_item = {"crd": self.coordinates[index], "u_vals": self.u_values[index], "f_inds": self.f_inds[index], 
                     "f_vals": self.f_values[self.f_inds[index]], "f_mesh": self.f_meshes[self.f_inds[index]]}
         return ret_item
-        return self.coordinates[index], self.u_values[index], self.f_inds[index]
 
+class UpdatedMultiDatasetWrapper(Dataset):
+    '''
+    Wrapper to retrieve all datasets and store them into one main dataset wrapper.
+    All datasets are concatenated with each other. 
+    We use a pointer system for mapping u_values with their corresponding f_meshes and f_values to avoid duplicate copies of the data.
+    '''
+    def __init__(self, data_file_path, data_file_name: str, domain: tuple):
+        self.domain = domain
+        self.data = torch.load(data_file_path + data_file_name)
+        self.length = self.data["coordinates"].shape[0]
+        self.coordinates = self.data["coordinates"]
+        self.u_values = self.data["u_values"]
+        self.f_values = self.data["f_values"]
+        self.f_meshes = self.data["f_meshes"]
+
+        self.f_inds = [0] * self.length
+        self.sub_lengths = self.data["data_addresses"]
+        for i, address in enumerate(self.data["data_addresses"]):
+            self.f_inds[slice(*address)] = [i] * (address[1]-address[0])
+
+    def __len__(self):
+        # return total dataset size
+        return self.length
+
+    def __getitem__(self, index):
+        # write your code to return each batch element
+
+        # write your code to return each batch element
+        ret_item = {"crd": self.coordinates[index], "u_vals": self.u_values[index], "f_inds": self.f_inds[index], 
+                    "f_vals": self.f_values[self.f_inds[index]], "f_mesh": self.f_meshes[self.f_inds[index]]}
+        return ret_item
 
 class MultiBndDatasetWrapper(Dataset):
     '''

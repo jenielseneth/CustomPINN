@@ -20,7 +20,7 @@ def plot_points(points, values = None, cmap='viridis', title="", save_dir = None
 
         
 def plot_multiple_points(points_list, values_list, title_list = None, cmap_list = None, 
-                        main_title = None, save_dir = None, save_name = None):
+                        main_title = None, save_dir = None, save_name = None, show: bool = True):
 
     plt.suptitle(main_title)
     for i, points in enumerate(points_list):
@@ -42,7 +42,10 @@ def plot_multiple_points(points_list, values_list, title_list = None, cmap_list 
             os.makedirs(save_dir)
         plt.savefig(save_dir + save_name + ".png")
         print("Saved figure as " + save_dir + save_name + ".png.")
-    plt.show()
+    if show:
+        plt.show()
+    else:
+        plt.close()
 
 
     

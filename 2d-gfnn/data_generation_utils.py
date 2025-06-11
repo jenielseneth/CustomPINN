@@ -67,7 +67,7 @@ def sample_chebyshev_points(domain, num_points: tuple):
     return result
 
 
-def sample_chebyshev_points_3(domain, num_points: tuple):
+def sample_chebyshev_points_3(domain, num_points: tuple, boundary: bool = False):
     '''
     Samples Chebyshev points and returns output points with shape (num_points x 2).
     Differs from sample_chebyshev_points: this produces an ordered list of points organized by (x_low,y_low) to (x_high, y_high), where 
@@ -86,55 +86,27 @@ def sample_chebyshev_points_3(domain, num_points: tuple):
     points_y /= 2
     points_x = points_x * (x_max-x_min) + x_min
     points_y = points_y * (y_max-y_min) + y_min
-    xx, yy = torch.meshgrid(points_x, points_y, indexing='xy')
-    result = torch.column_stack((xx.ravel(), yy.ravel()))
+    
+    if boundary:
+        bnd_x = torch.tensor([x_min, x_max], dtype=torch.float32)
+        bnd_y = torch.tensor([y_min, y_max], dtype=torch.float32)
+
+        xx, yy = torch.meshgrid(points_x, bnd_y, indexing='xy')
+        result = torch.column_stack((xx.ravel(), yy.ravel()))
+        yy, xx = torch.meshgrid(points_y, bnd_x, indexing='xy')
+        result = torch.vstack((result, torch.column_stack((xx.ravel(), yy.ravel()))))
+    else:
+        xx, yy = torch.meshgrid(points_x, points_y, indexing='xy')
+        result = torch.column_stack((xx.ravel(), yy.ravel()))
+
     return result
 
 
-def generate_points(domain, u_gt_func, f_func, save_dir: str, num_points: tuple, f_qudrature_num_points: tuple, 
-                    training_data: bool= True, u_chebyshev_mesh: bool = True, uniform_f_quadrature: bool = False,  
-                    u_gt_expr: str = None, f_func_expr: str = None, u_bnd_expr: str = None):
-    
-    if not os.path.exists(save_dir):
-        raise Exception("The directory " + save_dir + " doesn't exist.")
-    print("Generating points to save into dir: " + save_dir)
-    # Sample mesh points
-    if u_chebyshev_mesh:
-        # Sample mesh points as chebyshev points
-        x_num_nodes, y_num_nodes = num_points
-        mesh_points = sample_chebyshev_points_3(domain, num_points=(x_num_nodes, y_num_nodes))
-    else:
-        # Sample random points
-        assert len(num_points) == 1 
-        mesh_points = sample_random_mesh_points(domain, num_points[0])
 
-    #Get u_values from mesh points
-    u_values = u_gt_func(mesh_points)
-
-    if uniform_f_quadrature:
-        #Get f_values from uniform mesh points
-        x_num_nodes, y_num_nodes = f_qudrature_num_points
-        f_mesh = sample_uniform_mesh_points(domain, (x_num_nodes, y_num_nodes))
-        f_values = f_func(f_mesh)
-    else:
-        #Get f_values from previously defined mesh points
-        x_num_nodes, y_num_nodes = f_qudrature_num_points
-        f_mesh_points = sample_chebyshev_points_3(domain, num_points=(x_num_nodes, y_num_nodes))
-        f_mesh = f_mesh_points
-        f_values = f_func(f_mesh_points)
-    
-    data = {'coordinates': mesh_points, 'u_values': u_values, 'f_values': f_values, 
-            "f_mesh": f_mesh, "uniform_quadrature": uniform_f_quadrature, "chebyshev_bool": u_chebyshev_mesh, 
-            "u_gt_func_expr": u_gt_expr, "f_func_str_expr": f_func_expr, "u_bnd_func_expr": u_bnd_expr, "domain": domain}
-    
-    file_suffix = "_train.pt" if training_data else "_test.pt"
-    torch.save(data, save_dir + "data"+file_suffix)
-    print("Saved generated points into " + save_dir + ".")
-
-
-
-def generate_points_2(domain, u_gt_funcs, f_funcs, save_dir: str, num_points: tuple, f_qudrature_num_points: tuple, 
-                    training_data: bool= True, u_chebyshev_mesh: bool = True, uniform_f_quadrature: bool = False,  
+def generate_points_2(domain, u_gt_funcs, f_funcs, save_dir: str, u_mesh_num_points: tuple, f_mesh_num_points: tuple, 
+                    training_data: bool= True, 
+                    u_mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev",
+                    f_mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev",
                     u_gt_exprs: list[str] = None, f_func_exprs: list[str] = None, u_bnd_expr: str = None):
     """
     Generates and saves mesh points, ground truth solution values, and right-hand side function values for a given domain,
@@ -162,32 +134,41 @@ def generate_points_2(domain, u_gt_funcs, f_funcs, save_dir: str, num_points: tu
     print("Generating points to save into dir: " + save_dir)
     for i, (u_gt_func, f_func) in tqdm(enumerate(zip(u_gt_funcs, f_funcs)), total=len(u_gt_funcs)):
         # Sample mesh points
-        if u_chebyshev_mesh:
+        if u_mesh_type == "chebyshev":
             # Sample mesh points as chebyshev points
-            x_num_nodes, y_num_nodes = num_points
-            mesh_points = sample_chebyshev_points_3(domain, num_points=(x_num_nodes, y_num_nodes))
-        else:
+            assert len(u_mesh_num_points) == 2
+            mesh_points = sample_chebyshev_points_3(domain, num_points=u_mesh_num_points)
+        elif u_mesh_type == "uniform":
             # Sample random points
-            assert len(num_points) == 1 
-            mesh_points = sample_random_mesh_points(domain, num_points[0])
-
+            assert len(u_mesh_num_points) == 2
+            mesh_points = sample_uniform_mesh_points(domain, u_mesh_num_points)
+        elif u_mesh_type == "random":
+            # Sample random points
+            assert len(u_mesh_num_points) == 1 
+            mesh_points = sample_random_mesh_points(domain, u_mesh_num_points[0])
+        else:
+            raise ValueError("Invalid u_mesh_type. Choose from 'chebyshev', 'uniform', or 'random'.")
         #Get u_values from mesh points
         u_values = u_gt_func(mesh_points)
 
-        if uniform_f_quadrature:
+        if f_mesh_type == "chebyshev":
             #Get f_values from uniform mesh points
-            x_num_nodes, y_num_nodes = f_qudrature_num_points
-            f_mesh = sample_uniform_mesh_points(domain, (x_num_nodes, y_num_nodes))
-            f_values = f_func(f_mesh)
-        else:
+            assert len(f_mesh_num_points) == 2
+            f_mesh = sample_chebyshev_points_3(domain, f_mesh_num_points)
+
+        if f_mesh_type == "uniform":
+            #Get f_values from uniform mesh points
+            assert len(f_mesh_num_points) == 2
+            f_mesh = sample_uniform_mesh_points(domain, f_mesh_num_points)
+        elif f_mesh_type == "random":
             #Get f_values from previously defined mesh points
-            x_num_nodes, y_num_nodes = f_qudrature_num_points
-            f_mesh_points = sample_chebyshev_points_3(domain, num_points=(x_num_nodes, y_num_nodes))
-            f_mesh = f_mesh_points
-            f_values = f_func(f_mesh_points)
+            assert len(f_mesh_num_points) == 1 
+            f_mesh = sample_chebyshev_points_3(domain, f_mesh_num_points[0])
+        
+        f_values = f_func(f_mesh)
 
         ind_data.append({'coordinates': mesh_points, 'u_values': u_values, 'f_values': f_values, 
-            "f_mesh": f_mesh, "uniform_quadrature": uniform_f_quadrature, "chebyshev_bool": u_chebyshev_mesh, 
+            "f_mesh": f_mesh, "f_mesh_type": f_mesh_type, "u_mesh_type": u_mesh_type, 
             "u_gt_func_expr": u_gt_exprs[i], "f_func_str_expr": f_func_exprs[i], "u_bnd_func_expr": u_bnd_expr, "domain": domain})
 
     #Concatenate all the data into a single dictionary.
@@ -212,7 +193,8 @@ def generate_points_2(domain, u_gt_funcs, f_funcs, save_dir: str, num_points: tu
 
 
     data = {'coordinates': mesh_points, 'u_values': u_values, 'f_values': f_values, 
-            "f_meshes": f_mesh, "uniform_quadrature": uniform_f_quadrature, "chebyshev_bool": u_chebyshev_mesh, 
+            "f_meshes": f_mesh, "f_mesh_type": f_mesh_type, "u_mesh_type": u_mesh_type, 
+            "u_mesh_size": u_mesh_num_points, "f_mesh_size": f_mesh_num_points,
             "u_gt_func_exprs": u_gt_exprs, "f_func_str_exprs": f_func_exprs, "u_bnd_func_exprs": u_bnd_exprs, 
             "data_addresses": data_addresses, "domain": domain}
     

@@ -87,8 +87,7 @@ def bnd_eval_gf_integral(greens_function: Callable[[Tuple[float, float], Tuple[f
     weights: f Tensor of weights for the quadrature rule, if None, we assume the model learns the weights.
     '''
     bs, _ = coordinates.size()
-
-    x_input = torch.zeros_like(f_mesh[None, :, :])+coordinates[:, None, :] #b x f x2 Tensor
+    x_input = torch.zeros_like(f_mesh[None, :, :])+coordinates[:, None, :] #b x f x 2 Tensor
     y_input = f_mesh[None, :, :].expand(bs, -1, -1) #b x f x 2 Tensor
     greens_function_eval = greens_function(x_input, y_input)# b x f Tensor
     integral = greens_function_eval*f_values # b x f Tensor

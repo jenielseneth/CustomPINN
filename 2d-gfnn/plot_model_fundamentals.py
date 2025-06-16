@@ -48,7 +48,7 @@ model.eval()
 
 
 # Uniform mesh for plotting
-uniform_mesh = sample_uniform_mesh_points(domain, num_points=(50,50))
+uniform_mesh = sample_uniform_mesh_points(domain, num_points=(50,50))[None, :, :]
 
 #Get approximated/ground truth (gt) u values on uniform mesh
 # u_uniform = eval_u_integral_2(greens_function=model, coordinates=uniform_mesh, f_mesh=f_mesh, f_values=f_values)
@@ -60,16 +60,18 @@ else:
 
 domain_center = torch.tensor(((domain[1]-domain[0])/2, (domain[3]-domain[2])/2))
 domain_edge = torch.tensor((domain[1], domain[3]))
-psi_uniform = model.psi(torch.zeros_like(uniform_mesh) + domain_center, uniform_mesh)[:, 0]
-phi_uniform = model.phi(torch.zeros_like(uniform_mesh) + domain_center, uniform_mesh)[:, 0]
+psi_uniform = model.psi(torch.zeros_like(uniform_mesh) + domain_center, uniform_mesh)[0, :, 0]
+phi_uniform = model.phi(torch.zeros_like(uniform_mesh) + domain_center, uniform_mesh)[0, :, 0]
 
 log_term = torch.log((torch.abs(uniform_mesh-domain_center).sum(-1))+ 1e-8).view(psi_uniform.shape)
 greens_function_uniform = (phi_uniform * log_term + psi_uniform) * weights_uniform
 
-model_term_center = model(torch.zeros_like(uniform_mesh) + domain_center, uniform_mesh)
-model_term_edge = model(torch.zeros_like(uniform_mesh) + domain_edge, uniform_mesh)
+model_term_center = model(torch.zeros_like(uniform_mesh) + domain_center, uniform_mesh)[0]
+model_term_edge = model(torch.zeros_like(uniform_mesh) + domain_edge, uniform_mesh)[0]
 
 print(weights_uniform.shape, psi_uniform.shape, phi_uniform.shape, greens_function_uniform.shape, model_term_center.shape)
+
+uniform_mesh = uniform_mesh[0]  # Remove batch dimension for plotting
 
 plot_multiple_points(points_list=[uniform_mesh, uniform_mesh, uniform_mesh, uniform_mesh, uniform_mesh], 
                      values_list=[weights_uniform, psi_uniform, phi_uniform, model_term_center, model_term_edge], 

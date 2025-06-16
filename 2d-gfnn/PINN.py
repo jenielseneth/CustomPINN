@@ -81,20 +81,26 @@ class CustomPINN_Green2D(nn.Module):
 
     def forward(self, x, y):
         '''
-        x is the input coordinate for u(x) = int (G(x,y) * f(y) dy).
-        y is the parameter along which we integrate.
-        x: b x f x 2 Tensor; b - batch size of coordinates, f - size of f_mesh, 2 - 2D
-        y: b x f x 2 Tensor; b - batch size of coordinates, f - size of f_mesh, 2 - 2D
+        x is the input coordinate for u(x) = int (G(x,y) * f(y) dy). \n
+        y is the parameter along which we integrate. \n
+        :param Tensor x: b x f x 2 Tensor; b - batch size of coordinates, f - size of f_mesh, 2 - 2D
+        :param Tensor y: b x f x 2 Tensor; b - batch size of coordinates, f - size of f_mesh, 2 - 2D
+        :return: b x f Tensor; b - batch size of coordinates, f - size of f_mesh
+        :rtype: Tensor
         '''
+        assert len(x.shape) == 3 and len(y.shape) == 3, "x and y must be 3D tensors with shape (batch_size, f_size, 2)"
         phi = self.phi(x,y)
         psi = self.psi(x,y)
-        log_term = torch.log((torch.sqrt(((x-y)**2).sum(-1)))+ 1e-8).view(phi.shape)
+
+        log_term = torch.log((torch.sqrt(((x-y)**2).sum(-1)))+ 1e-14).view(phi.shape)
         val = (phi * log_term + psi)
         if self.l_weights == True:
             weight = (self.quadrature_weights(y)**2) / self.area
             val *= weight
-        print(f"val shape: {val.shape}, output size: {self.output_size}")
-        assert False
+
+        # for i, row in enumerate(x):
+        #     if row[0][0] == 0 or row[0][1] == 0 or row[0][0] == 1 or row[0][1] == 1:
+        #         val[i] = torch.zeros_like(val[i])
         if self.output_size == 1:
             return val[...,0]
         else:

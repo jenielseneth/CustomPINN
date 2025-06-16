@@ -1,6 +1,7 @@
 import math
 from torch.utils.data import Dataset, DataLoader
 from data_generation_utils import sample_chebyshev_points_3
+from plot_utils import plot_multiple_points
 import torch
 import random
 import os
@@ -143,7 +144,8 @@ def train(model, optimizer, dataloader: DataLoader, loss_fn: DataPredLoss,
         bnd_points_shape = (20, 20)
         bnd_points = sample_chebyshev_points_3(domain=domain, num_points=bnd_points_shape, boundary=True)[:, None, :].expand(-1, bnd_mesh_shape[0]*bnd_mesh_shape[1], -1)
         bnd_mesh_check = sample_chebyshev_points_3(domain=domain, num_points=bnd_mesh_shape)[None, :, :].expand(len(bnd_points), -1, -1)
-        
+        # plot_multiple_points([bnd_points[:,1,:], bnd_mesh_check[1]], [bnd_points[:,0,:].sum(-1), bnd_mesh_check[0].sum(-1)], title_list=["Boundary Points", "Mesh used for integral boundary loss"],)
+
     for i, item in enumerate(dataloader):
         # Compute prediction and loss
             bs = len(item["crd"])
@@ -157,8 +159,6 @@ def train(model, optimizer, dataloader: DataLoader, loss_fn: DataPredLoss,
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            if scheduler is not None:
-                scheduler.step()
 
             loss = loss.item()
             current_num += bs

@@ -4,7 +4,8 @@ import torch
 from torch import nn
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
-from training_utils import UpdatedMultiDatasetWrapper, test, train, train_w_bnd_loss, test_w_bnd_loss
+from training_utils import UpdatedMultiDatasetWrapper, test, train
+from random_utils import find_line_with_keyword
 from PINN import CustomPINN_Green2D
 from PINN_2 import CustomPINN_Green2D_2
 from loss import BndDataPredLoss, DataPredLoss
@@ -33,7 +34,7 @@ if __name__ == "__main__":
 
     train_data = UpdatedMultiDatasetWrapper(data_file_path=data_dir, data_file_name="data_train.pt", domain=domain)
     test_data = UpdatedMultiDatasetWrapper(data_file_path=data_dir, data_file_name="data_test.pt", domain=domain)
-    training_bs = 128
+    training_bs = 256
     test_bs = 128
     trainloader = DataLoader(train_data, batch_size=training_bs, shuffle=True)
     testloader = DataLoader(test_data, batch_size=test_bs, shuffle=True)
@@ -43,14 +44,15 @@ if __name__ == "__main__":
     learn_quadrature_weights = False # Bool to determine whether to learn quadrature weights or use precomputed.
     model = CustomPINN_Green2D(4, 1, hidden_size=hidden_channels, num_layers=num_layers, domain=domain, l_weights=learn_quadrature_weights)
     # model = CustomPINN_Green2D_2(2, hidden_channels, hidden_size=hidden_channels, num_layers=num_layers, domain=domain, l_weights=learn_quadrature_weights)
-    f_mesh_quadrature_points = (20,20)
+    f_mesh_quadrature_points_txt = find_line_with_keyword(data_dir+ "train_info.txt", "f(x) Mesh Size:", index=6).split(":")[-1].strip()
+    f_mesh_quadrature_points = tuple(map(int, f_mesh_quadrature_points_txt.split(",")))
     loss_fn = DataPredLoss(domain=domain, num_points=f_mesh_quadrature_points, l_weights=learn_quadrature_weights, f_mesh_type=train_data.f_mesh_type)
 
     lr = 1e-2
     weight_decay = 1e-4
-    step_size = 30
+    step_size = 50
     gamma=0.5
-    num_epochs = 15
+    num_epochs = 100
     optimizer = torch.optim.Adam(params=model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = StepLR(optimizer, step_size=step_size, gamma=gamma)
 
@@ -86,6 +88,8 @@ if __name__ == "__main__":
         total_train_loss = train(model=model, optimizer=optimizer, dataloader=trainloader,
                 loss_fn=loss_fn, scheduler=scheduler, domain=domain)
         total_test_loss = test(model=model, dataloader=testloader, loss_fn=loss_fn, domain=domain)
+        if scheduler is not None:
+            scheduler.step()
         if log_wandb:
             run.log({"train/loss": total_train_loss, "test/loss": total_test_loss, "epoch": epoch+1})
             

@@ -35,30 +35,37 @@ def cheb_1d_points(domain, num_points: int):
 
 def cheb_weights(n):
     '''
-    Calculates the Chebyshev weights for n points of the second kind. n is the number of nodes, not the final index.
+    Calculates the Chebyshev weights for 0,1,...,n points of the second kind.
+    If you have e.g. a total length 10 chebyshev nodes, input n = 9 to get the weights for nodes 0,1,...,9. \n
 
     Parameters 
     ----------------
     n: number of nodes
     '''
-    weights = torch.linspace(0, n-1, n)
+    weights = torch.linspace(0, n, n+1)
     weights = torch.pow(-1, weights)
-    weights[0] = weights[-1] = 0.5
+    weights[0] *= 0.5
+    weights[-1] *= 0.5
     return weights
 
 def cheb_1d_impl(eval_points, values, domain):
+    '''
+    Chebyshev interpolation in 1D. \n
+    :param Tensor eval_points: m x 1 (m points to evaluate) 
+    :param Tensor values: n x 1 (n values at the Chebyshev nodes)
+    :param tuple domain: (x_min, x_max)
+    '''
     n = len(values)
     points = cheb_1d_points(domain, n)
-    weights = cheb_weights(n)
+    weights = cheb_weights(n-1)
     eval = torch.zeros_like(eval_points)
-
     for i, eval_point in enumerate(eval_points):
-        inv_diff = 1/(eval_point - points)
-        val = inv_diff * weights
-        eval[i] = torch.sum(val * values) / torch.sum(val)
-
-    # plot_points(torch.vstack((torch.zeros_like(points), points)).T, values=values)
-    # plot_points(torch.vstack((torch.zeros_like(eval_points), eval_points)).T, values= eval)
+        if torch.any(eval_point == points): # Check if eval_point is in points
+            eval[i] = values[torch.where(eval_point == points)[0][0]]
+        else:
+            inv_diff = 1/((domain[1]-eval_point) - points)
+            val = inv_diff * weights
+            eval[i] = torch.sum(val * values) / torch.sum(val)
     return eval 
 
 def cheb_2d_impl(eval_points, values, domain):
@@ -77,6 +84,27 @@ def cheb_2d_impl(eval_points, values, domain):
     res2 = torch.zeros(len(eval_points))
     for i in range(len(eval_points)):
         res2[i] = cheb_1d_impl(eval_x[i:i+1], res1[:, i], domain[0:2])
+    return res2
+
+
+def cheb_2d_impl_2(eval_points, values, chebyshev_size, domain):
+    '''
+    Chebyshev interpolation in 2D. (use sample_chebyshev_points_3 to sample) \n
+    :param Tensor eval_points: (n*m) x 2 (n x_nodes * m y_nodes)
+    :param Tensor values: Values at chebyshev points: (n*m) Tensor (n x_nodes, m y_nodes)
+    :param tuple domain: (x_min, x_max, y_min, y_max)
+    '''
+    x_nodes, y_nodes = chebyshev_size
+    assert len(values) == x_nodes * y_nodes, f"Values shape {len(values)} does not match expected size {x_nodes * y_nodes} for chebyshev_size {chebyshev_size}."
+
+    eval_x = eval_points[:, 0]
+    eval_y = eval_points[:, 1]
+    res1 = torch.zeros((y_nodes, len(eval_points)))
+    for i in range(y_nodes):
+        res1[i] = cheb_1d_impl(eval_x, values[i*x_nodes:(i+1)*x_nodes], domain[0:2])
+    res2 = torch.zeros(len(eval_points))
+    for i in range(len(eval_points)):
+        res2[i] = cheb_1d_impl(eval_y[i:i+1], res1[:, i], domain[2:4])
     return res2
 
 
@@ -117,21 +145,27 @@ if __name__ == "__main__":
 
 
     #  Example usage
-    f = lambda x, y: torch.exp(x + y)
-    a, b = -1000, 1.0
-    c, d = -1000, 1.0
-    n = 4000
+    f = lambda x, y: x+y
+    a, b = 0, 1.0
+    c, d = 0, 1.0
+    n = 20
     
     area_ratio = (b-a)*(d-c)/(4)
 
     weights = clenshaw_curtis_weights_2d((n-1,n-1)) * area_ratio
     points= sample_chebyshev_points_3((a, b, c, d), (n, n))
+    print("Chebyshev points: ",points)
     f_vals = f(points[:,0], points[:,1])
     eval = (f_vals*weights).sum()
     gt = (torch.exp(torch.tensor(b))-torch.exp(torch.tensor(a)))**2
     print(eval, gt)
     print(eval-gt)
 
+    eval_points= sample_chebyshev_points_3((a, b, c, d), (2*n, 2*n))
+    eval_points = sample_random_mesh_points((a, b, c, d), 1000)
+    values = cheb_2d_impl_2(eval_points=eval_points, values=f_vals, chebyshev_size=(n, n), domain=(a, b, c, d))
+    plot_points(points, f_vals, title="Chebyshev Interpolation 2D")
+    plot_points(eval_points, values, title="Chebyshev Interpolation 2D")
 
     assert False
 

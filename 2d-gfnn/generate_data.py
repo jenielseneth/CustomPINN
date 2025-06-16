@@ -7,7 +7,7 @@ import torch
 from plot_utils import plot_multiple_points, plot_points
 from expr_generation_utils import expr_to_func, func_input_wrapper, generate_u_expr, generate_u_expr_w_bnd, get_diffusion_term_a_expr, get_f_expr, get_u_bnd_expr
 from data_generation_utils import generate_points_2, sample_uniform_mesh_points 
-import sympy
+import math
 import os
 from constants_utils import mesh_type
 def generate_data_2(u_expressions: list, u_bnd_expression, f_expressions: list, a_expression, 
@@ -80,24 +80,49 @@ if __name__ == "__main__":
 
     ##Generate source terms, u_functions and diffusion term
     boundary = True
-    n_u_expr = 40
+    n_u_expr = 10
 
     if boundary == True:
         u_bnd_expr = get_u_bnd_expr()
     else: 
         u_bnd_expr = None
 
-    u_exprs = generate_u_expr(n_expr=n_u_expr) if not boundary else generate_u_expr_w_bnd(domain=domain, u_bnd_expr=u_bnd_expr, n_expr=n_u_expr)
     a_expr = get_diffusion_term_a_expr()
-    f_exprs = get_f_expr(u_exprs, a_expr)
+    u_train_exprs = generate_u_expr(n_expr=n_u_expr) if not boundary else generate_u_expr_w_bnd(domain=domain, u_bnd_expr=u_bnd_expr, n_expr=n_u_expr)
+    f_train_exprs = get_f_expr(u_train_exprs, a_expr)
+    u_test_exprs = generate_u_expr(n_expr=n_u_expr) if not boundary else generate_u_expr_w_bnd(domain=domain, u_bnd_expr=u_bnd_expr, n_expr=n_u_expr)
+    f_test_exprs = get_f_expr(u_test_exprs, a_expr)
 
     u_train_mesh_type: mesh_type = "chebyshev"
     u_train_mesh_size = (20,20)
-    u_test_mesh_type: mesh_type = "random"
-    u_test_mesh_size = (400,)
-
+    u_test_mesh_type: mesh_type = "chebyshev"
+    u_test_mesh_size = (20,20)
     f_mesh_type: mesh_type = "chebyshev"
-    f_mesh_num_points = (20, 20)
+    f_mesh_size = (27, 27)
+
+    #Ensure the chebyshev points don't overlap:
+    overlap = False
+    if not math.gcd(u_train_mesh_size[0], f_mesh_size[0]) == 1:
+        print(f"Warning: Chebyshev points for u_train and f mesh sizes in dim 0 have gcd larger than 1: {math.gcd(u_train_mesh_size[0], f_mesh_size[0])}, they may overlap.")
+        overlap = True
+    if not math.gcd(u_train_mesh_size[1], f_mesh_size[1]) == 1:
+        print(f"Warning: Chebyshev points for u_train and f mesh sizes in dim 1 have gcd larger than 1: {math.gcd(u_train_mesh_size[1], f_mesh_size[1])}, they may overlap.")
+        overlap = True
+    if not math.gcd(u_test_mesh_size[0], f_mesh_size[0]) == 1:
+        print(f"Warning: Chebyshev points for u_test and f mesh sizes in dim 0 have gcd larger than 1: {math.gcd(u_test_mesh_size[0], f_mesh_size[0])}, they may overlap.")
+        overlap = True
+    if not math.gcd(u_test_mesh_size[1], f_mesh_size[1]) == 1:
+        print(f"Warning: Chebyshev points for u_test and f mesh sizes in dim 1 have gcd larger than 1: {math.gcd(u_test_mesh_size[1], f_mesh_size[1])}, they may overlap.")
+        overlap = True
+    if overlap:
+        user_input = input("The chebyshev points may overlap, do you want to continue? (y/n): ")
+        if user_input.lower() != 'y':
+            print("Exiting data generation.")
+            exit()
+    else:
+        print("Chebyshev points do not overlap, proceeding with data generation.")
+    
+        
 
     plot_uniform_mesh = sample_uniform_mesh_points((0, 1, 0, 1), (20, 20))
     a_func_values = func_input_wrapper(expr_to_func([a_expr]))[0](plot_uniform_mesh)
@@ -114,11 +139,11 @@ if __name__ == "__main__":
     # test_dir = dir + "test/" #Test directory
 
     #Train data
-    generate_data_2(u_expressions=u_exprs, u_bnd_expression=u_bnd_expr, f_expressions=f_exprs,
+    generate_data_2(u_expressions=u_train_exprs, u_bnd_expression=u_bnd_expr, f_expressions=f_train_exprs,
                   a_expression=a_expr, main_save_dir=dir, domain=domain, mesh_size=u_train_mesh_size,
-                  train_data=True, u_mesh_type=u_train_mesh_type, f_mesh_type=f_mesh_type, f_mesh_num_points=f_mesh_num_points)
+                  train_data=True, u_mesh_type=u_train_mesh_type, f_mesh_type=f_mesh_type, f_mesh_num_points=f_mesh_size)
 
     #Test data
-    generate_data_2(u_expressions=u_exprs, u_bnd_expression=u_bnd_expr, f_expressions=f_exprs,
+    generate_data_2(u_expressions=u_test_exprs, u_bnd_expression=u_bnd_expr, f_expressions=f_test_exprs,
                   a_expression=a_expr, main_save_dir=dir, domain=domain, mesh_size=u_test_mesh_size,
-                  train_data=False, u_mesh_type=u_test_mesh_type, f_mesh_type=f_mesh_type, f_mesh_num_points=f_mesh_num_points)
+                  train_data=False, u_mesh_type=u_test_mesh_type, f_mesh_type=f_mesh_type, f_mesh_num_points=f_mesh_size)

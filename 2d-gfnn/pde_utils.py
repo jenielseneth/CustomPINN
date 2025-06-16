@@ -58,12 +58,12 @@ def evaluate_model(model, f_values, f_meshes, coordinates, f_inds, domain):
 def eval_gf_integral(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], coordinates, f_meshes, f_values, weights=None):
 
     '''
-    Calculates the predicted values using the learned Green's Function model.
-    This function evaluates the integral of the Green's function using a quadrature rule.
-    coordinates: bx2 Tensor
-    f_meshes: bxf_sizex2 Tensors, where f_size is the number of points on the source term mesh.
-    f_values: bxf_size Tensor, where f_size is the number of points on the source term mesh.
-    weights: f_size Tensor of weights for the quadrature rule, if None, we assume the model learns the weights.
+    Calculates the predicted values using the learned Green's Function model. \n
+    This function evaluates the integral of the Green's function using a quadrature rule. \n
+    :param Tensor coordinates: b x 2 Tensor
+    :param Tensor f_meshes: b x f_size x 2 Tensors, where f_size is the number of points on the source term mesh.
+    :param Tensor f_values: b x f_size Tensor, where f_size is the number of points on the source term mesh.
+    :param Tensor weights: f_size Tensor of weights for the quadrature rule, if None, we assume the model learns the weights.
     '''
 
     x_input = torch.zeros_like(f_meshes) + coordinates[:, None, :]  # b x f x 2 Tensor 
@@ -77,14 +77,14 @@ def eval_gf_integral(greens_function: Callable[[Tuple[float, float], Tuple[float
 
 def bnd_eval_gf_integral(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], coordinates, f_mesh, f_values, weights=None):
     '''
-    This function is meant for data with separate boundary and collocation points.
-    This function evaluates the integral of the Green's function using a quadrature rule.
-    For a batch of coordinates on a single f_mesh. 
-    Instead of filtering the mesh, we add slight noise to the coordinates so 
-    coordinate: bx2 Tensor
-    f_mesh: fx2 Tensor
-    f_values: f Tensor
-    weights: f Tensor of weights for the quadrature rule, if None, we assume the model learns the weights.
+    This function is meant for data with separate boundary and collocation points. \n
+    This function evaluates the integral of the Green's function using a quadrature rule. \n
+    For a batch of coordinates on a single f_mesh. \n
+    Instead of filtering the mesh, we add slight noise to the coordinates. \n
+    :param Tensor coordinate: b x 2 Tensor 
+    :param Tensor f_mesh: f x 2 Tensor
+    :param Tensor f_values: f Tensor
+    :param Tensor weights: f Tensor of weights for the quadrature rule, if None, we assume the model learns the weights.
     '''
     bs, _ = coordinates.size()
     x_input = torch.zeros_like(f_mesh[None, :, :])+coordinates[:, None, :] #b x f x 2 Tensor

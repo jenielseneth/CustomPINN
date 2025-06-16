@@ -101,6 +101,27 @@ def sample_chebyshev_points_3(domain, num_points: tuple, boundary: bool = False)
 
     return result
 
+def sample_points(domain, num_points: tuple, mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev", boundary: bool = False):
+    """
+    Samples points in a given domain using specified mesh type.
+    
+    Args:
+        domain (tuple): The spatial domain defined as (x_min, x_max, y_min, y_max).
+        num_points (tuple): Number of points to sample in each dimension (x_num, y_num).
+        mesh_type (str): Type of mesh to use for sampling. Options are "chebyshev", "uniform", or "random".
+        boundary (bool): If True, samples points on the boundary of the domain.
+    
+    Returns:
+        torch.Tensor: Sampled points in the domain.
+    """
+    if mesh_type == "chebyshev":
+        return sample_chebyshev_points_3(domain, num_points, boundary)
+    elif mesh_type == "uniform":
+        return sample_uniform_mesh_points(domain, num_points, boundary)
+    elif mesh_type == "random":
+        return sample_random_mesh_points(domain, num_points[0], boundary)
+    else:
+        raise ValueError("Invalid mesh_type. Choose from 'chebyshev', 'uniform', or 'random'.")
 
 
 def generate_points_2(domain, u_gt_funcs, f_funcs, save_dir: str, u_mesh_num_points: tuple, f_mesh_num_points: tuple, 

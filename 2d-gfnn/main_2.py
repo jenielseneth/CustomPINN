@@ -6,9 +6,10 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 from training_utils import UpdatedMultiDatasetWrapper, test, train
 from random_utils import find_line_with_keyword
+from data_generation_utils import sample_points
 from PINN import CustomPINN_Green2D
 from PINN_2 import CustomPINN_Green2D_2
-from loss import BndDataPredLoss, DataPredLoss
+from loss import DataPredLoss
 from datetime import datetime
 import wandb
 
@@ -32,8 +33,8 @@ if __name__ == "__main__":
     data_dir = main_dir + "data/"
 
 
-    train_data = UpdatedMultiDatasetWrapper(data_file_path=data_dir, data_file_name="data_train.pt", domain=domain)
-    test_data = UpdatedMultiDatasetWrapper(data_file_path=data_dir, data_file_name="data_test.pt", domain=domain)
+    train_data = UpdatedMultiDatasetWrapper(data_file_path=data_dir, data_file_name="data_train.pt", domain=domain, interior=True)
+    test_data = UpdatedMultiDatasetWrapper(data_file_path=data_dir, data_file_name="data_test.pt", domain=domain, interior=False)
     training_bs = 256
     test_bs = 128
     trainloader = DataLoader(train_data, batch_size=training_bs, shuffle=True)
@@ -83,21 +84,41 @@ if __name__ == "__main__":
         },
         
     )
+
+    bnd_points_size = (20, 20)
+    domain_mesh_size = tuple(map(lambda x: x - 1, bnd_points_size))
+    bnd_points = sample_points(domain=domain, num_points=bnd_points_size, mesh_type="chebyshev",
+                               boundary=True, excl_corners=True)[:, None, :].expand(-1, domain_mesh_size[0]*domain_mesh_size[1], -1)
+    domain_mesh = sample_points(domain=domain, num_points=domain_mesh_size, mesh_type="chebyshev")[None, :, :].expand(len(bnd_points), -1, -1)
+    # plot_multiple_points([bnd_points[:,1,:], bnd_mesh_check[1]], [bnd_points[:,0,:].sum(-1), bnd_mesh_check[0].sum(-1)], title_list=["Boundary Points", "Mesh used for integral boundary loss"],)
+
+
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
+    else:
+        print("Warning: " + model_dir + " already exists.")
+        
+    best_test_loss = float('inf')
+    best_train_loss = float('inf')
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}\n-------------------------------")
-        total_train_loss = train(model=model, optimizer=optimizer, dataloader=trainloader,
-                loss_fn=loss_fn, scheduler=scheduler, domain=domain)
+        total_train_loss = train(model=model, optimizer=optimizer, dataloader=trainloader, loss_fn=loss_fn,
+                                 boundary_points=bnd_points, domain_mesh=domain_mesh, bnd_loss=True)
         total_test_loss = test(model=model, dataloader=testloader, loss_fn=loss_fn, domain=domain)
         if scheduler is not None:
             scheduler.step()
         if log_wandb:
             run.log({"train/loss": total_train_loss, "test/loss": total_test_loss, "epoch": epoch+1})
-            
-    
-    if not os.path.exists(model_dir):
-        os.makedirs(model_dir)
-    else:
-        print("Warning: " + model_dir + " already exists.")
+
+        if num_epochs / 2 <= epoch:
+            if total_test_loss < best_test_loss:
+                best_test_loss = total_test_loss
+                best_train_loss = total_train_loss
+                if log_wandb:
+                    run.log({"best_test_loss": best_test_loss, "best_train_loss": best_train_loss})
+                print(f"New best model found at epoch {epoch+1} with test loss {best_test_loss}. Saving model.")
+                torch.save(model.state_dict(), model_dir + "model_best.pth")
+
 
     log_file_name = model_dir + "main_info.txt"
     with open(log_file_name, "w") as f: 
@@ -115,9 +136,11 @@ if __name__ == "__main__":
         f.write('Scheduler Gamma: ' + str(gamma) + "\n")
         f.write('Final Total Train Loss: ' + str(total_train_loss) + "\n")
         f.write('Final Total Test Loss: ' + str(total_test_loss) + "\n")
+        f.write('Best Total Train Loss: ' + str(best_train_loss) + "\n")
+        f.write('Best Total Test Loss: ' + str(best_test_loss) + "\n")
         f.write('Learn Quadrature Weights: ' + str(learn_quadrature_weights) + "\n")
     
-    torch.save(model.state_dict(), model_dir +  "model.pth")
+    torch.save(model.state_dict(), model_dir +  "model_final.pth")
     print("Training complete. Saved model to " + model_dir + "model.pth.")
 
     if log_wandb:

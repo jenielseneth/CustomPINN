@@ -1,7 +1,7 @@
 import math
 import torch
 
-from data_generation_utils import sample_chebyshev_points, sample_chebyshev_points_3, sample_random_mesh_points
+from data_generation_utils import sample_chebyshev_points_3, sample_random_mesh_points
 from plot_utils import plot_points
 
 def sample_chebyshev_points_2(domain, num_points: tuple):

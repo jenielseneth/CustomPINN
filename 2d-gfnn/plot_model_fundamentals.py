@@ -7,7 +7,6 @@ from plot_utils import plot_multiple_points
 from data_generation_utils import sample_uniform_mesh_points
 from pde_utils import bnd_eval_gf_integral
 from expr_generation_utils import expr_to_func, func_input_wrapper
-from training_utils import MultiBndDatasetWrapper
 from random_utils import find_line_with_keyword
 from loss import fetch_quadrature_weights
 import sympy

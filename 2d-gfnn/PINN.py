@@ -92,7 +92,7 @@ class CustomPINN_Green2D(nn.Module):
         phi = self.phi(x,y)
         psi = self.psi(x,y)
 
-        log_term = torch.log((torch.sqrt(((x-y)**2).sum(-1)))+ 1e-14).view(phi.shape)
+        log_term = torch.log((torch.sqrt(((x-y)**2).sum(-1)))).view(phi.shape)
         val = (phi * log_term + psi)
         if self.l_weights == True:
             weight = (self.quadrature_weights(y)**2) / self.area

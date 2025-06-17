@@ -43,30 +43,6 @@ def sample_uniform_mesh_points(domain, num_points: tuple, boundary: bool = False
     return result
 
 
-def sample_chebyshev_points(domain, num_points: tuple):
-    '''
-    Samples Chebyshev points and returns output with shape (num_points x 2).
-    To sample Chebyshev points with output with shape (num_points x num_points), see sample_chebyshev_points_2.
-    '''
-    x_num, y_num = num_points
-    x_min, x_max, y_min, y_max = domain
-    points_x = torch.linspace(0, x_num-1, x_num) * torch.pi / (x_num-1)
-    points_x = torch.cos(points_x)
-    points_y = torch.linspace(0, y_num-1, y_num) * torch.pi / (y_num-1)
-    points_y = torch.cos(points_y)
-    points_x += 1
-    points_x /= 2
-    points_y += 1
-    points_y /= 2
-    points_x = points_x * (x_max-x_min) + x_min
-    points_y = points_y * (y_max-y_min) + y_min
-    xx, yy = torch.meshgrid(points_x, points_y, indexing='ij')
-    result = torch.column_stack((xx.ravel(), yy.ravel()))
-    print(xx, yy)
-    assert False
-    return result
-
-
 def sample_chebyshev_points_3(domain, num_points: tuple, boundary: bool = False):
     '''
     Samples Chebyshev points and returns output points with shape (num_points x 2).
@@ -101,7 +77,7 @@ def sample_chebyshev_points_3(domain, num_points: tuple, boundary: bool = False)
 
     return result
 
-def sample_points(domain, num_points: tuple, mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev", boundary: bool = False):
+def sample_points(domain, num_points: tuple, mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev", boundary: bool = False, excl_corners: bool = False):
     """
     Samples points in a given domain using specified mesh type.
     
@@ -109,26 +85,51 @@ def sample_points(domain, num_points: tuple, mesh_type: typing.Literal["chebyshe
         domain (tuple): The spatial domain defined as (x_min, x_max, y_min, y_max).
         num_points (tuple): Number of points to sample in each dimension (x_num, y_num).
         mesh_type (str): Type of mesh to use for sampling. Options are "chebyshev", "uniform", or "random".
-        boundary (bool): If True, samples points on the boundary of the domain.
+        boundary (bool): If True, samples points only on the boundary of the domain.
+        excl_corners (bool): If True, excludes corner points from the sampled points.
     
     Returns:
         torch.Tensor: Sampled points in the domain.
     """
     if mesh_type == "chebyshev":
-        return sample_chebyshev_points_3(domain, num_points, boundary)
+        mesh = sample_chebyshev_points_3(domain, num_points, boundary)
     elif mesh_type == "uniform":
-        return sample_uniform_mesh_points(domain, num_points, boundary)
+        mesh = sample_uniform_mesh_points(domain, num_points, boundary)
     elif mesh_type == "random":
-        return sample_random_mesh_points(domain, num_points[0], boundary)
+        mesh = sample_random_mesh_points(domain, num_points[0], boundary)
     else:
         raise ValueError("Invalid mesh_type. Choose from 'chebyshev', 'uniform', or 'random'.")
+    
+    if excl_corners:
+        # Exclude corners if specified
+        x_min, x_max, y_min, y_max = domain
+        corners = torch.tensor([[x_min, y_min], [x_min, y_max], [x_max, y_min], [x_max, y_max]])
+        mask = ~torch.any(torch.all(mesh[:, None] == corners, dim=-1), dim=1)
+        mesh = mesh[mask]
+
+    return mesh
 
 
-def generate_points_2(domain, u_gt_funcs, f_funcs, save_dir: str, u_mesh_num_points: tuple, f_mesh_num_points: tuple, 
+
+def get_interior_boundary_idx(domain, points):
+    '''
+    Returns the indices of collocation and boundary points in the given points.
+    '''
+    boundary_ind = []
+    interior_ind = []
+    for i, point in enumerate(points):
+        if point[0] in domain[0:2] or point[1] in domain[2:4]:
+            boundary_ind.append(i)
+        else:
+            interior_ind.append(i)
+    return interior_ind, boundary_ind
+
+
+def generate_points(domain, u_gt_funcs, f_funcs, save_dir: str, u_mesh_num_points: tuple, f_mesh_num_points: tuple, 
                     training_data: bool= True, 
                     u_mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev",
                     f_mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev",
-                    u_gt_exprs: list[str] = None, f_func_exprs: list[str] = None, u_bnd_expr: str = None):
+                    u_gt_exprs: list[str] = None, f_func_exprs: list[str] = None, u_bnd_expr: str = None, u_excl_corners: bool = False):
     """
     Generates and saves mesh points, ground truth solution values, and right-hand side function values for a given domain,
     supporting both Chebyshev and uniform quadrature meshes. The generated data is saved as a PyTorch file for use in
@@ -158,15 +159,18 @@ def generate_points_2(domain, u_gt_funcs, f_funcs, save_dir: str, u_mesh_num_poi
         if u_mesh_type == "chebyshev":
             # Sample mesh points as chebyshev points
             assert len(u_mesh_num_points) == 2
-            mesh_points = sample_chebyshev_points_3(domain, num_points=u_mesh_num_points)
+            # mesh_points = sample_chebyshev_points_3(domain, num_points=u_mesh_num_points)
+            mesh_points = sample_points(domain=domain, num_points=u_mesh_num_points, mesh_type=u_mesh_type, boundary=False, excl_corners=u_excl_corners)
         elif u_mesh_type == "uniform":
             # Sample random points
             assert len(u_mesh_num_points) == 2
-            mesh_points = sample_uniform_mesh_points(domain, u_mesh_num_points)
+            # mesh_points = sample_uniform_mesh_points(domain, u_mesh_num_points)
+            mesh_points = sample_points(domain=domain, num_points=u_mesh_num_points, mesh_type=u_mesh_type, boundary=False, excl_corners=u_excl_corners)
         elif u_mesh_type == "random":
             # Sample random points
             assert len(u_mesh_num_points) == 1 
-            mesh_points = sample_random_mesh_points(domain, u_mesh_num_points[0])
+            # mesh_points = sample_random_mesh_points(domain, u_mesh_num_points[0])
+            mesh_points = sample_points(domain=domain, num_points=u_mesh_num_points, mesh_type=u_mesh_type, boundary=False, excl_corners=u_excl_corners)
         else:
             raise ValueError("Invalid u_mesh_type. Choose from 'chebyshev', 'uniform', or 'random'.")
         #Get u_values from mesh points
@@ -175,18 +179,23 @@ def generate_points_2(domain, u_gt_funcs, f_funcs, save_dir: str, u_mesh_num_poi
         if f_mesh_type == "chebyshev":
             #Get f_values from uniform mesh points
             assert len(f_mesh_num_points) == 2
-            f_mesh = sample_chebyshev_points_3(domain, f_mesh_num_points)
+            # f_mesh = sample_chebyshev_points_3(domain, f_mesh_num_points)
+            f_mesh = sample_points(domain=domain, num_points=f_mesh_num_points, mesh_type=f_mesh_type, boundary=False)
 
         if f_mesh_type == "uniform":
             #Get f_values from uniform mesh points
             assert len(f_mesh_num_points) == 2
-            f_mesh = sample_uniform_mesh_points(domain, f_mesh_num_points)
+            # f_mesh = sample_uniform_mesh_points(domain, f_mesh_num_points)
+            f_mesh = sample_points(domain=domain, num_points=f_mesh_num_points, mesh_type=f_mesh_type, boundary=False)
         elif f_mesh_type == "random":
             #Get f_values from previously defined mesh points
             assert len(f_mesh_num_points) == 1 
-            f_mesh = sample_chebyshev_points_3(domain, f_mesh_num_points[0])
+            # f_mesh = sample_chebyshev_points_3(domain, f_mesh_num_points[0])
+            f_mesh = sample_points(domain=domain, num_points=f_mesh_num_points, mesh_type=f_mesh_type, boundary=False)
         
         f_values = f_func(f_mesh)
+
+        #Return the interior and boundary indices of the mesh points.
 
         ind_data.append({'coordinates': mesh_points, 'u_values': u_values, 'f_values': f_values, 
             "f_mesh": f_mesh, "f_mesh_type": f_mesh_type, "u_mesh_type": u_mesh_type, 
@@ -205,6 +214,8 @@ def generate_points_2(domain, u_gt_funcs, f_funcs, save_dir: str, u_mesh_num_poi
     u_bnd_exprs = [data['u_bnd_func_expr'] for data in ind_data]
     
 
+    interior_idxs, boundary_idxs = get_interior_boundary_idx(domain=domain, points=mesh_points)
+
     start = 0
     data_addresses = []
     for data in ind_data:
@@ -217,7 +228,8 @@ def generate_points_2(domain, u_gt_funcs, f_funcs, save_dir: str, u_mesh_num_poi
             "f_meshes": f_mesh, "f_mesh_type": f_mesh_type, "u_mesh_type": u_mesh_type, 
             "u_mesh_size": u_mesh_num_points, "f_mesh_size": f_mesh_num_points,
             "u_gt_func_exprs": u_gt_exprs, "f_func_str_exprs": f_func_exprs, "u_bnd_func_exprs": u_bnd_exprs, 
-            "data_addresses": data_addresses, "domain": domain}
+            "data_addresses": data_addresses, "interior_idxs": interior_idxs, "boundary_idxs": boundary_idxs,
+            "domain": domain}
     
     file_suffix = "_train.pt" if training_data else "_test.pt"
     torch.save(data, save_dir + "data"+file_suffix)

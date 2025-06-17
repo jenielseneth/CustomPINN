@@ -6,7 +6,7 @@ import torch
 import random
 import os
 
-from loss import BndDataPredLoss, DataPredLoss
+from loss import DataPredLoss
 
 
 class DatasetWrapper(Dataset):
@@ -28,19 +28,6 @@ class DatasetWrapper(Dataset):
         return self.coordinates[index], self.u_values[index], self.f_values, self.f_mesh
 
 
-def get_collocation_boundary_idx(domain, points):
-    '''
-    Returns the indices of collocation and boundary points in the given points.
-    '''
-    boundary_ind = []
-    collocation_ind = []
-    for i, point in enumerate(points):
-        if point[0] in domain[0:2] or point[1] in domain[2:4]:
-            boundary_ind.append(i)
-        else:
-            collocation_ind.append(i)
-    return collocation_ind, boundary_ind
-
 def fetch_dataset(file_path: str, data_file_path: str):
     data = torch.load(file_path + data_file_path)
     coordinates = data["coordinates"]
@@ -55,7 +42,7 @@ class UpdatedMultiDatasetWrapper(Dataset):
     All datasets are concatenated with each other.
     We use a pointer system for mapping u_values with their corresponding f_meshes and f_values to avoid duplicate copies of the data.
     '''
-    def __init__(self, data_file_path, data_file_name: str, domain: tuple):
+    def __init__(self, data_file_path, data_file_name: str, domain: tuple, interior: bool = True):
         self.domain = domain
         self.data = torch.load(data_file_path + data_file_name)
         self.length = self.data["coordinates"].shape[0]
@@ -63,16 +50,30 @@ class UpdatedMultiDatasetWrapper(Dataset):
         self.u_values = self.data["u_values"]
         self.f_values = self.data["f_values"]
         self.f_meshes = self.data["f_meshes"]
+        self.interior_idxs = self.data["interior_idxs"]
+        self.boundary_idxs = self.data["boundary_idxs"]
 
         self.f_inds = [0] * self.length
         self.sub_lengths = self.data["data_addresses"]
         for i, address in enumerate(self.data["data_addresses"]):
             self.f_inds[slice(*address)] = [i] * (address[1]-address[0])
+        
 
         self.u_mesh_type = self.data["u_mesh_type"]
         self.u_mesh_size = self.data["u_mesh_size"]
         self.f_mesh_type = self.data["f_mesh_type"]
         self.f_mesh_size = self.data["f_mesh_size"]
+
+        if interior:
+            self.coordinates = self.coordinates[self.interior_idxs]
+            self.u_values = self.u_values[self.interior_idxs]
+            self.f_inds = [self.f_inds[i] for i in self.interior_idxs]
+            self.length = len(self.coordinates)
+
+            ##Temporary solution to fix the sub_lengths for interior points.
+            sub_length = self.length // len(self.sub_lengths)
+            for i in range(len(self.sub_lengths)):
+                self.sub_lengths[i] = (i*sub_length, (i+1)*sub_length)
 
     def __len__(self):
         # return total dataset size
@@ -86,66 +87,19 @@ class UpdatedMultiDatasetWrapper(Dataset):
                     "f_vals": self.f_values[self.f_inds[index]], "f_mesh": self.f_meshes[self.f_inds[index]]}
         return ret_item
 
-class MultiBndDatasetWrapper(Dataset):
+
+def train(model, optimizer, dataloader: DataLoader, loss_fn: DataPredLoss, 
+          bnd_loss: bool, boundary_points, domain_mesh):
     '''
-    Wrapper to retrieve all datasets and store them into one main dataset wrapper, separating boundary and collocation points.
-    Each dataset is given as a single element, as opposed to MultiDatasetWrapper where all e.g. point data is concatenated into a single tensor.
-    We forgo the pointer system mentioned in MultiDatasetWrapper, as to train on the loss with boundary values included,
-    we need to train each dataset individually to preserve structure.
+    boundary_points: bnd x dom_mesh x 2 Tensor of boundary points to evaluate the boundary loss on.
+    domain_mesh: bnd x dom_mesh x 2 Tensor of domain mesh points to evaluate the boundary loss on.
+    bnd_loss: bool, whether to include the boundary loss in the training.
     '''
-    def __init__(self, data_file_path: str,data_file_name: str, domain: tuple):
-        self.domain = domain
-
-        if data_file_path[-1] != "/":
-            data_file_path += "/"
-
-        ## Sort subdirectories by index as generated using generate_data.py
-        subdirectories = [data_file_path + a + "/" for a in os.listdir(data_file_path) if os.path.isdir(data_file_path + a)]
-        subdirs_int = [int(a) for a in os.listdir(data_file_path) if os.path.isdir(data_file_path + a)]
-        subdirectories = [x for _ , x in sorted(zip(subdirs_int,subdirectories))]
-
-        c, u, c_bnd, u_bnd, f, f_meshes = [], [], [], [], [], []
-        for i, subdir in enumerate(subdirectories):
-            coordinates, u_values, f_values, f_mesh = fetch_dataset(subdir, data_file_name)
-            col_idx, bnd_idx = get_collocation_boundary_idx(self.domain, coordinates)
-            c.append(coordinates[col_idx])
-            c_bnd.append(coordinates[bnd_idx])
-            u.append(u_values[col_idx])
-            u_bnd.append(u_values[bnd_idx])
-            f.append(f_values)
-            f_meshes.append(f_mesh)
-        self.coordinates = torch.stack(c)
-        self.bnd_coordinates = torch.stack(c_bnd)
-        self.u_values = torch.stack(u)
-        self.u_bnd_values = torch.stack(u_bnd)
-        self.f_values = f
-        self.f_meshes = f_meshes
-        self.total_length = len(self.coordinates)
-
-    def __len__(self):
-        # return total dataset size
-        return self.total_length
-
-    def __getitem__(self, index):
-        # write your code to return each batch element
-        ret_item = {"col_crd": self.coordinates[index], "col_u_vals": self.u_values[index], "bnd_crd": self.bnd_coordinates[index],
-                    "bnd_u_vals": self.u_bnd_values[index], "f_vals": self.f_values[index], "f_mesh": self.f_meshes[index]}
-        return ret_item
-
-
-def train(model, optimizer, dataloader: DataLoader, loss_fn: DataPredLoss,
-        domain, bnd_loss: bool = True, scheduler = None):
     size = len(dataloader.dataset)
     model.train()
     current_num = 0
     total_loss = 0
-    if bnd_loss:
-        bnd_mesh_shape = (20, 20)
-        bnd_points_shape = (20, 20)
-        bnd_points = sample_chebyshev_points_3(domain=domain, num_points=bnd_points_shape, boundary=True)[:, None, :].expand(-1, bnd_mesh_shape[0]*bnd_mesh_shape[1], -1)
-        bnd_mesh_check = sample_chebyshev_points_3(domain=domain, num_points=bnd_mesh_shape)[None, :, :].expand(len(bnd_points), -1, -1)
-        # plot_multiple_points([bnd_points[:,1,:], bnd_mesh_check[1]], [bnd_points[:,0,:].sum(-1), bnd_mesh_check[0].sum(-1)], title_list=["Boundary Points", "Mesh used for integral boundary loss"],)
-
+    
     for i, item in enumerate(dataloader):
         # Compute prediction and loss
             bs = len(item["crd"])
@@ -153,7 +107,8 @@ def train(model, optimizer, dataloader: DataLoader, loss_fn: DataPredLoss,
                         f_meshes_batch=item["f_mesh"], coordinates_batch=item["crd"],  u_batch=item["u_vals"])
 
             if bnd_loss:
-                bnd_eval = model(bnd_points, bnd_mesh_check)
+                assert boundary_points.shape == domain_mesh.shape, f"Boundary points ({boundary_points.shape}) and domain mesh ({domain_mesh.shape}) must have the same batch size."
+                bnd_eval = model(boundary_points, domain_mesh)
                 bnd_loss = torch.nn.functional.mse_loss(bnd_eval, torch.zeros_like(bnd_eval))
                 loss += bnd_loss
             optimizer.zero_grad()
@@ -177,51 +132,6 @@ def test(dataloader, model, loss_fn: DataPredLoss, domain):
             loss = loss_fn(greens_function_approx=model, f_values_batch=item["f_vals"],
                         f_meshes_batch=item["f_mesh"], coordinates_batch=item["crd"],  u_batch=item["u_vals"])
             test_loss += loss.item()
-
-    print(f"Avg Test Loss per sample: {test_loss/ size :>8f} \n", end="")
-
-    return test_loss
-
-
-def train_w_bnd_loss(model, optimizer, dataloader: DataLoader, loss_fn: BndDataPredLoss,
-            domain, scheduler = None):
-    size = len(dataloader.dataset)
-    model.train()
-    current_num = 0
-    total_loss = 0
-    for i, item in enumerate(dataloader):
-        # Compute prediction and loss
-            col_loss = loss_fn(greens_function_approx=model, domain=domain, f_values_batch=item["f_vals"],
-                        f_mesh_batch=item["f_mesh"], coordinates_batch=item["col_crd"],  u_batch=item["col_u_vals"])
-            bnd_loss = loss_fn(greens_function_approx=model, domain=domain, f_values_batch=item["f_vals"],
-                        f_mesh_batch=item["f_mesh"], coordinates_batch=item["bnd_crd"],  u_batch=torch.zeros_like(item["bnd_u_vals"]))
-            loss = col_loss + bnd_loss
-            # Backpropagation
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            if scheduler is not None:
-                scheduler.step()
-
-            loss = loss.item()
-            current_num += 1
-            print(f"\rAvg Train Loss per sample: {loss:>7f}  [{current_num:>5d}/{size:>5d}] \n", end="")
-            total_loss += loss
-
-    return total_loss
-
-def test_w_bnd_loss(dataloader, model, loss_fn: BndDataPredLoss, domain):
-    size = len(dataloader.dataset)
-    model.eval()
-    test_loss = 0
-    with torch.no_grad():
-        for item in dataloader:
-            col_loss = loss_fn(greens_function_approx=model, domain=domain, f_values_batch=item["f_vals"],
-                        f_mesh_batch=item["f_mesh"], coordinates_batch=item["col_crd"],  u_batch=item["col_u_vals"])
-            bnd_loss = loss_fn(greens_function_approx=model, domain=domain, f_values_batch=item["f_vals"],
-                        f_mesh_batch=item["f_mesh"], coordinates_batch=item["bnd_crd"],  u_batch=torch.zeros_like(item["bnd_u_vals"]))
-            loss = (col_loss + bnd_loss).item()
-            test_loss += loss
 
     print(f"Avg Test Loss per sample: {test_loss/ size :>8f} \n", end="")
 

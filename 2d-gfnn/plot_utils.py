@@ -2,7 +2,7 @@
 import os
 from matplotlib import pyplot as plt
 
-plt.rcParams["figure.figsize"] = (11, 11)
+plt.rcParams["figure.figsize"] = (9, 9)
 
 def plot_points(points, values = None, cmap='viridis', title="", save_dir = None, save_name = None):
     if values is not None:

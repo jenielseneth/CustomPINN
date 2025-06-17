@@ -66,33 +66,3 @@ class DataPredLoss(object):
         # plot_multiple_points([coordinates_batch, coordinates_batch], values_list=[u_pred, u_batch], title_list=["Predicted Collocation Values", "Ground Collocation Truth"])
         return loss
     
-
-class BndDataPredLoss(object):
-    '''
-    Used for datasets with separate collocation and boundary points.
-    This loss function evaluates the integral of the Green's function using a quadrature rule.
-    Since incoorporating collocation and boundary points into a single loss function requires the entire mesh points
-        over the domain, we cannot arbitrarily shuffle the data over the different datasets. 
-        Instead, we must input at each loss calculation the entire dataset of collocation points and boundary points 
-            corresponding to one source term.
-    '''
-    def __init__(self, domain, num_points, l_weights: bool, f_mesh_type: mesh_type):
-        super().__init__()
-        self.l_weights = l_weights
-        self.weights = fetch_quadrature_weights(domain, num_points, f_mesh_type)
-
-    def __call__(self, greens_function_approx, f_values_batch, f_mesh_batch, coordinates_batch, u_batch, *args, **kwargs):
-        total_loss = 0
-        for i, coordinates in enumerate(coordinates_batch):
-            if len(coordinates) == 0:
-                loss = 0
-            else:
-                if self.l_weights:
-                    u_pred = bnd_eval_gf_integral(greens_function=greens_function_approx, f_values=f_values_batch[i], f_mesh=f_mesh_batch[i], coordinates=coordinates)
-                else:
-                    u_pred = bnd_eval_gf_integral(greens_function=greens_function_approx, f_values=f_values_batch[i], f_mesh=f_mesh_batch[i], coordinates=coordinates, weights=self.weights)
-                loss = torch.nn.functional.mse_loss(u_pred, u_batch[i])
-            # plot_multiple_points([coordinates, coordinates], values_list=[u_pred, u_batch[i]], title_list=["Predicted Collocation Values", "Ground Collocation Truth"])
-            total_loss += loss
-        return total_loss
-    

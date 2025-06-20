@@ -67,15 +67,13 @@ class MLP(nn.Module):
 
     
 class CustomPINN_Green2D(nn.Module):
-    def __init__(self, dims: int, output_size: int, hidden_size: int, num_layers: int,  domain: tuple, l_weights: bool):        
+    def __init__(self, num_layers: int, hidden_size: int, domain: tuple, l_weights: bool):        
         super(CustomPINN_Green2D, self).__init__()
-        self.dims = dims
-        self.output_size = output_size
         self.hidden_size = hidden_size
         self.domain = domain
         self.area = (domain[3]-domain[2])*(domain[1]-domain[0])
-        self.phi = PINN_NN(input_size=dims, hidden_size=hidden_size, output_size=output_size, num_layers=num_layers)
-        self.psi = PINN_NN(input_size=dims, hidden_size=hidden_size, output_size=output_size, num_layers=num_layers)
+        self.phi = PINN_NN(input_size=4, hidden_size=hidden_size, output_size=1, num_layers=num_layers)
+        self.psi = PINN_NN(input_size=4, hidden_size=hidden_size, output_size=1, num_layers=num_layers)
         self.l_weights = l_weights
         self.quadrature_weights = MLP(input_size=2, hidden_size=32, output_size=1, num_layers=num_layers)
 
@@ -97,12 +95,6 @@ class CustomPINN_Green2D(nn.Module):
         if self.l_weights == True:
             weight = (self.quadrature_weights(y)**2) / self.area
             val *= weight
-
-        # for i, row in enumerate(x):
-        #     if row[0][0] == 0 or row[0][1] == 0 or row[0][0] == 1 or row[0][1] == 1:
-        #         val[i] = torch.zeros_like(val[i])
-        if self.output_size == 1:
-            return val[...,0]
-        else:
-            return val
+                        
+        return val[...,0]
         

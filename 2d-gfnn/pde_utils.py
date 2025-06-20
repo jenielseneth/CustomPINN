@@ -3,115 +3,68 @@ import torch
 from collections.abc import Callable
 import scipy.integrate as integrate
 import numpy as np
+from dataset_utils import GreensConstantsDataclass
+from chebyshev_utils import cheb_2d_impl_2, clenshaw_curtis_weights_2d
+from constants_utils import mesh_type
+from loss import fetch_quadrature_weights
 
-def get_u_evaluation_func(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], source_term: torch.Tensor, quadrature_mesh: torch.Tensor):
-    '''
-    Returns the function to evaluate the integration of the greens function.
-    '''
-    def evaluate_u_discrete(coordinate, domain: Tuple[float, float, float, float], coordinate_filter_radius = 1e-5):
-        filter = torch.where((quadrature_mesh - coordinate).pow(2).sum(1).sqrt() > coordinate_filter_radius)[0]
-        filtered_mesh = quadrature_mesh[filter]
-        source_term_eval = source_term[filter]
-        area = (domain[1]-domain[0])*(domain[3]-domain[2])
-        greens_function_eval = greens_function(torch.zeros_like(filtered_mesh)+coordinate, filtered_mesh)
-        weights = torch.full((len(filtered_mesh),), area/len(filtered_mesh))
-        pred = torch.sum(greens_function_eval*source_term_eval*weights)
-        # pred = torch.sum(greens_function_eval*source_term_eval)
-        return pred
     
-    return evaluate_u_discrete
-    
-def evaluate_model(model, f_values, f_meshes, coordinates, f_inds, domain):
-    '''
-    Calculates the predicted values using the learned Green's Function model.
-    '''
-    evaluation = torch.zeros(len(coordinates))
-    for i, coordinate in enumerate(coordinates):
-        ind = f_inds[i]
-        evaluation_func = get_u_evaluation_func(greens_function=model, source_term=f_values[ind], quadrature_mesh=f_meshes[ind])
-        evaluation[i] = evaluation_func(coordinate=coordinate, domain=domain)
-    return evaluation
 
-
-##Updated pde_utils
-# def eval_u_integral(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], coordinate, domain: Tuple[float, float, float, float], f_mesh, f_values, coordinate_filter_radius = 1e-5):
-#     '''
-#     Assumes the model learns the quadrature weights.
-#     coordinate: 1x2 Tensor
-#     '''
-#     filter = torch.where((f_mesh - coordinate).pow(2).sum(1).sqrt() > coordinate_filter_radius)[0]
-#     filtered_mesh = f_mesh[filter]
-#     source_term_eval = f_values[filter]
-#     greens_function_eval = greens_function(torch.zeros_like(filtered_mesh)+coordinate, filtered_mesh)
-#     pred = torch.sum(greens_function_eval*source_term_eval)
-#     return pred
-
-# def evaluate_model_2(model, f_values, f_mesh, coordinates, domain):
-#     '''
-#     Calculates the predicted values using the learned Green's Function model.
-#     '''
-#     evaluation = torch.zeros(len(coordinates))
-#     for i, crd in enumerate(coordinates):
-#         evaluation[i] = eval_u_integral(coordinate=crd, domain=domain, greens_function=model, f_values=f_values, f_mesh=f_mesh)
-#     return evaluation
-
-def eval_gf_integral(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], coordinates, f_meshes, f_values, weights=None):
+def evaluate_greens_function_integral(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], evaluation_mesh, integration_mesh_values, dataset_constants: GreensConstantsDataclass, weights=None):
 
     '''
     Calculates the predicted values using the learned Green's Function model. \n
     This function evaluates the integral of the Green's function using a quadrature rule. \n
-    :param Tensor coordinates: b x 2 Tensor
-    :param Tensor f_meshes: b x f_size x 2 Tensors, where f_size is the number of points on the source term mesh.
-    :param Tensor f_values: b x f_size Tensor, where f_size is the number of points on the source term mesh.
+    :param Tensor evaluation_mesh: b x 2 Tensor
+    :param Tensor integration_mesh: b x f_size x 2 Tensor | f_size x 2 Tensor, where f_size is the number of points on the source term mesh.
+    :param Tensor integration_mesh_values: b x f_size Tensor | f_size Tensor, where f_size is the number of points on the source term mesh.
     :param Tensor weights: f_size Tensor of weights for the quadrature rule, if None, we assume the model learns the weights.
     '''
+    integration_mesh = dataset_constants.integration_mesh
+    weights = dataset_constants.quadrature_weights
 
-    x_input = torch.zeros_like(f_meshes) + coordinates[:, None, :]  # b x f x 2 Tensor 
-    y_input = f_meshes # b x f x 2 Tensor
+    assert evaluation_mesh.dim() == 2 and evaluation_mesh.shape[1] == 2, "evaluation_mesh must be a b x 2 Tensor."
+
+    if integration_mesh.dim() == 3:
+        assert evaluation_mesh.shape[0] == integration_mesh.shape[0], "integration_mesh must either have the same size in dim 0 as evaluation_mesh, or have the size: f_size x 2 Tensor."
+
+    elif integration_mesh.dim() == 2:
+        integration_mesh = integration_mesh[None, :, :].expand(evaluation_mesh.shape[0], -1, -1)
+    else: 
+        raise ValueError("integration_mesh must be of either dimension 2 or 3.")
+    
+    if integration_mesh_values.dim() == 2:
+        assert evaluation_mesh.shape[0] == integration_mesh_values.shape[0], f"integration_mesh_values with shape {integration_mesh_values.shape} must either have the same size in dim 0 as evaluation_mesh, or have the size: f_size Tensor."
+    elif integration_mesh_values.dim() == 1:
+        integration_mesh_values = integration_mesh_values[None, :].expand(evaluation_mesh.shape[0], -1)
+    else:
+        raise ValueError("integration_mesh_values must be of either dimension 1 or 2.")
+
+    x_input = torch.zeros_like(integration_mesh) + evaluation_mesh[:, None, :]  # b x f x 2 Tensor 
+    y_input = integration_mesh # b x f x 2 Tensor
+
+    assert x_input.shape == y_input.shape and x_input.dim() == y_input.dim() == 3
+
     greens_function_eval = greens_function(x_input, y_input)
-    integral = greens_function_eval*f_values  # b x f Tensor
+    integral = greens_function_eval*integration_mesh_values  # b x f Tensor
     if weights is not None:
         integral = integral * weights[None, :]  # b x f Tensor, weights should be broadcasted
     pred = torch.sum(integral, -1)  # b Tensor, sum over the f dimension
     return pred
 
-def bnd_eval_gf_integral(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], coordinates, f_mesh, f_values, weights=None):
+def chebyshev_inference(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], evaluation_coordinates, integration_mesh_values, dataset_constants: GreensConstantsDataclass, l_weights: bool):
     '''
-    This function is meant for data with separate boundary and collocation points. \n
-    This function evaluates the integral of the Green's function using a quadrature rule. \n
-    For a batch of coordinates on a single f_mesh. \n
-    Instead of filtering the mesh, we add slight noise to the coordinates. \n
-    :param Tensor coordinate: b x 2 Tensor 
-    :param Tensor f_mesh: f x 2 Tensor
-    :param Tensor f_values: f Tensor
-    :param Tensor weights: f Tensor of weights for the quadrature rule, if None, we assume the model learns the weights.
+    Calculates u(x) on an evaluation chebyshev mesh, which is then used to 
     '''
-    bs, _ = coordinates.size()
-    x_input = torch.zeros_like(f_mesh[None, :, :])+coordinates[:, None, :] #b x f x 2 Tensor
-    y_input = f_mesh[None, :, :].expand(bs, -1, -1) #b x f x 2 Tensor
-    greens_function_eval = greens_function(x_input, y_input)# b x f Tensor
-    integral = greens_function_eval*f_values # b x f Tensor
-    if weights is not None:
-        integral = integral * weights
-    pred = torch.sum(integral, -1)
-    return pred
+    if l_weights:
+        weights = None
+    else:
+        weights = dataset_constants.quadrature_weights
+    
+    u_pred = evaluate_greens_function_integral(greens_function=greens_function, 
+                                        evaluation_mesh=dataset_constants.chebyshev_evaluation_mesh,
+                                        dataset_constants=dataset_constants,
+                                        integration_mesh=dataset_constants.integration_mesh, integration_mesh_values=integration_mesh_values, weights=weights)
+    # u_pred[bnd] = 0 # Boundary condition
+    u_pred_uniform = cheb_2d_impl_2(eval_points=evaluation_coordinates, values=u_pred, chebyshev_size=dataset_constants.evaluation_mesh_size, domain=dataset_constants.domain)
 
-# def bnd_eval_gf_integral_w_weights(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], coordinates, f_mesh, f_values, weights):
-#     '''
-#     This function is meant for data with separate boundary and collocation points.
-#     This function evaluates the integral of the Green's function using a quadrature rule with predetermined weights.
-#     For a batch of coordinates on a single f_mesh.
-#     Instead of filtering the mesh, we add slight noise to the coordinates so 
-#     coordinate: bx2 Tensor
-#     f_mesh: fx2 Tensor
-#     f_values: f Tensor
-#     weights: f Tensor of weights for the quadrature rule.
-#     '''
-#     bs, _ = coordinates.size()
-
-#     x_input = torch.zeros_like(f_mesh[None, :, :])+coordinates[:, None, :] #b x f x2 Tensor
-#     y_input = f_mesh[None, :, :].expand(bs, -1, -1) #b x f x 2 Tensor
-#     greens_function_eval = greens_function(x_input, y_input) # b x f Tensor
-#     integral = greens_function_eval*f_values*weights # b x f Tensor
-#     pred = torch.sum(integral, -1)
-#     return pred

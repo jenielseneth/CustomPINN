@@ -1,7 +1,7 @@
 import math
 import torch
 
-from data_generation_utils import sample_chebyshev_points_3, sample_random_mesh_points
+from data_generation_utils import sample_points
 from plot_utils import plot_points
 
 def sample_chebyshev_points_2(domain, num_points: tuple):
@@ -153,7 +153,7 @@ if __name__ == "__main__":
     area_ratio = (b-a)*(d-c)/(4)
 
     weights = clenshaw_curtis_weights_2d((n-1,n-1)) * area_ratio
-    points= sample_chebyshev_points_3((a, b, c, d), (n, n))
+    points= sample_points((a, b, c, d), (n, n), "chebyshev")
     print("Chebyshev points: ",points)
     f_vals = f(points[:,0], points[:,1])
     eval = (f_vals*weights).sum()
@@ -161,8 +161,8 @@ if __name__ == "__main__":
     print(eval, gt)
     print(eval-gt)
 
-    eval_points= sample_chebyshev_points_3((a, b, c, d), (2*n, 2*n))
-    eval_points = sample_random_mesh_points((a, b, c, d), 1000)
+    eval_points= sample_points((a, b, c, d), (2*n, 2*n), "chebyshev")
+    eval_points = sample_points((a, b, c, d), 1000, "random")
     values = cheb_2d_impl_2(eval_points=eval_points, values=f_vals, chebyshev_size=(n, n), domain=(a, b, c, d))
     plot_points(points, f_vals, title="Chebyshev Interpolation 2D")
     plot_points(eval_points, values, title="Chebyshev Interpolation 2D")

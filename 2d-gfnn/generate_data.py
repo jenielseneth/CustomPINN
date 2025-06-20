@@ -6,16 +6,16 @@ import typing
 import torch
 from plot_utils import plot_multiple_points, plot_points
 from expr_generation_utils import expr_to_func, func_input_wrapper, generate_u_expr, generate_u_expr_w_bnd, get_diffusion_term_a_expr, get_f_expr, get_u_bnd_expr
-from data_generation_utils import generate_points, sample_uniform_mesh_points 
+from data_generation_utils import generate_points, sample_points 
 import math
 import os
 from constants_utils import mesh_type
-def generate_data_2(u_expressions: list, u_bnd_expression, f_expressions: list, a_expression, 
+
+def generate_data(u_expressions: list, u_bnd_expression, f_expressions: list, a_expression, 
             main_save_dir: str, domain: tuple, mesh_size: tuple, train_data: bool,
             u_mesh_type: mesh_type = "chebyshev",
             f_mesh_type: mesh_type = "chebyshev",
-            f_mesh_num_points: tuple = None,
-            u_excl_corners: bool = True):
+            f_mesh_num_points: tuple = None):
     
     #Default to using chebyshev points for f_mesh and values.
     if f_mesh_num_points is None:
@@ -36,7 +36,7 @@ def generate_data_2(u_expressions: list, u_bnd_expression, f_expressions: list, 
                 u_mesh_type=u_mesh_type, f_mesh_type=f_mesh_type,
                 save_dir=main_save_dir, training_data=train_data, 
                 f_mesh_num_points=f_mesh_num_points, 
-                u_gt_exprs=function_strs, f_func_exprs=source_term_strs, u_bnd_expr=u_bnd_str, u_excl_corners=u_excl_corners)
+                u_gt_exprs=function_strs, f_func_exprs=source_term_strs, u_bnd_expr=u_bnd_str)
 
 
     info_file_name = "train_" + "info.txt" if train_data else "test_" + "info.txt"
@@ -50,7 +50,6 @@ def generate_data_2(u_expressions: list, u_bnd_expression, f_expressions: list, 
         f.write('u(x) Mesh Type: ' + str(u_mesh_type) + "\n")
         f.write('f(x) Mesh Type: ' + str(f_mesh_type)+ "\n")
         f.write('f(x) Mesh Size: ' + ', '.join(map(str,f_mesh_num_points))+ "\n")
-        f.write('Exclude corners in u(x): ' + str(u_excl_corners) + "\n")
     
     #Iterate for all u_expressions
     with open(main_save_dir + fncs_file_name, "w") as f:
@@ -100,8 +99,7 @@ if __name__ == "__main__":
     u_test_mesh_type: mesh_type = "chebyshev"
     u_test_mesh_size = (20,20)
     f_mesh_type: mesh_type = "chebyshev"
-    f_mesh_size = (27, 27)
-    u_excl_corners = True
+    f_mesh_size = (31, 31)
 
     #Ensure the chebyshev points don't overlap:
     overlap = False
@@ -127,7 +125,7 @@ if __name__ == "__main__":
     
         
 
-    plot_uniform_mesh = sample_uniform_mesh_points((0, 1, 0, 1), (20, 20))
+    plot_uniform_mesh = sample_points(domain=domain, mesh_size=(20, 20), mesh_type="uniform")
     a_func_values = func_input_wrapper(expr_to_func([a_expr]))[0](plot_uniform_mesh)
     plot_points(plot_uniform_mesh, a_func_values, title="Diffusion term values")
 
@@ -142,13 +140,11 @@ if __name__ == "__main__":
     # test_dir = dir + "test/" #Test directory
 
     #Train data
-    generate_data_2(u_expressions=u_train_exprs, u_bnd_expression=u_bnd_expr, f_expressions=f_train_exprs,
+    generate_data(u_expressions=u_train_exprs, u_bnd_expression=u_bnd_expr, f_expressions=f_train_exprs,
                   a_expression=a_expr, main_save_dir=dir, domain=domain, mesh_size=u_train_mesh_size,
-                  train_data=True, u_mesh_type=u_train_mesh_type, f_mesh_type=f_mesh_type, f_mesh_num_points=f_mesh_size,
-                  u_excl_corners=u_excl_corners)
+                  train_data=True, u_mesh_type=u_train_mesh_type, f_mesh_type=f_mesh_type, f_mesh_num_points=f_mesh_size)
 
     #Test data
-    generate_data_2(u_expressions=u_test_exprs, u_bnd_expression=u_bnd_expr, f_expressions=f_test_exprs,
+    generate_data(u_expressions=u_test_exprs, u_bnd_expression=u_bnd_expr, f_expressions=f_test_exprs,
                   a_expression=a_expr, main_save_dir=dir, domain=domain, mesh_size=u_test_mesh_size,
-                  train_data=False, u_mesh_type=u_test_mesh_type, f_mesh_type=f_mesh_type, f_mesh_num_points=f_mesh_size,
-                  u_excl_corners=u_excl_corners)
+                  train_data=False, u_mesh_type=u_test_mesh_type, f_mesh_type=f_mesh_type, f_mesh_num_points=f_mesh_size)

@@ -3,17 +3,15 @@ from dataclasses import dataclass
 
 
 mesh_type = Literal["uniform", "chebyshev", "random"]
-class WeightParams(TypedDict):
-    domain: tuple
-    f_mesh_type: mesh_type
-    f_mesh_size: tuple
-
 class BoundaryPointLossParams(TypedDict):
     bnd_points_size : tuple
     domain_mesh_size : tuple
 
 @dataclass
 class Hyperparameters:
+    '''
+    Defines the configuration of a particular model run.
+    '''
     training_batch_size: int
     test_batch_size: int
     train_excl_boundary_points: bool
@@ -26,3 +24,8 @@ class Hyperparameters:
     step_size: int
     gamma: float
     l_weights: bool
+    num_runs: int = 1
+
+    def __post_init__(self):
+        if self.num_runs < 1:
+            raise ValueError("Number of runs in hyperparameter configuration must be at least 1. ")

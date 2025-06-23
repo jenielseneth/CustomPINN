@@ -97,4 +97,4 @@ class CustomPINN_Green2D(nn.Module):
             val *= weight
                         
         return val[...,0]
-        
+    

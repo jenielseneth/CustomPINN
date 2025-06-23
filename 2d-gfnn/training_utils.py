@@ -3,26 +3,35 @@ from math import prod
 from torch.utils.data import DataLoader
 from torch.nn.modules.loss import _Loss
 from tqdm import tqdm
+from typing import Type
 from data_generation_utils import sample_points, gcd_chebyshev_mesh_size
 from plot_utils import plot_points
 from pde_utils import evaluate_greens_function_integral
 from datetime import datetime
 from dataset_utils import GreenPINNDataset, get_non_corners_mesh, get_corners_idx
-from constants_utils import WeightParams, BoundaryPointLossParams, Hyperparameters
+from constants_utils import BoundaryPointLossParams, Hyperparameters
 from random_utils import log_dict_as_json
 
-class Trainer:
-    def __init__(self, model, optimizer, 
+class GreensTrainer:
+    def __init__(self, 
+                 model_cls : Type[torch.nn.Module], model_params: dict, 
+                 optimizer_cls: Type[torch.optim.Optimizer], optimizer_params: dict,
                  training_data: GreenPINNDataset, test_data: GreenPINNDataset, 
                  train_loss_fn: _Loss, test_loss_fn: _Loss | list[_Loss], 
                  hyperparameters_config: Hyperparameters,
-                 scheduler=None, 
+                 scheduler_cls, scheduler_params: dict,
                  l_weights: bool = False, 
                  boundary_loss: bool = True, boundary_loss_params: BoundaryPointLossParams = None,
                  debug_mode: bool = False):
         
-        self.model = model
-        self.optimizer = optimizer
+        ## Lazy instantiation of model, optimizer and scheduler for the purpose of multiple runs.
+        self.model_cls = model_cls
+        self.model_params = model_params
+        self.optimizer_cls = optimizer_cls
+        self.optimizer_params = optimizer_params
+        self.scheduler_cls = scheduler_cls
+        self.scheduler_params = scheduler_params
+
         self.train_loss_fn = train_loss_fn
         self.test_loss_fn = test_loss_fn if isinstance(test_loss_fn, list) else [test_loss_fn]
         self.training_data = training_data
@@ -31,7 +40,6 @@ class Trainer:
         self.testd_constants = self.test_data.constants
         self.trainloader = DataLoader(self.training_data, batch_size=hyperparameters_config.training_batch_size, shuffle=True)
         self.testloader = DataLoader(self.test_data, batch_size=hyperparameters_config.test_batch_size, shuffle=True)
-        self.scheduler = scheduler
         self.l_weights = l_weights
         if self.l_weights:
             self.quadrature_weights = None
@@ -49,17 +57,17 @@ class Trainer:
         
         self.debug_mode = debug_mode
 
-    def _train(self): 
+    def _train(self, model: torch.nn.Module, optimizer: torch.optim.Optimizer): 
         size = len(self.trainloader.dataset)
-        self.model.train()
+        model.train()
         current_num = 0
         total_loss = 0
         
-        bar = tqdm(enumerate(self.trainloader), desc="Training", total=len(self.trainloader), leave=False)
+        bar = tqdm(enumerate(self.trainloader), desc="Training", total=len(self.trainloader), leave=False, ascii=' >=')
         for _, item in bar:
             # Compute prediction and loss
             u_gt = item["u_vals"]
-            u_prediction = evaluate_greens_function_integral(greens_function=self.model, integration_mesh_values=item["f_vals"], evaluation_mesh=item["crd"], dataset_constants=self.training_data.constants)
+            u_prediction = evaluate_greens_function_integral(greens_function=model, integration_mesh_values=item["f_vals"], evaluation_mesh=item["crd"], dataset_constants=self.training_data.constants)
             
             loss = self.train_loss_fn(u_prediction, u_gt) 
 
@@ -67,13 +75,13 @@ class Trainer:
                 assert self.bnd_points.shape == self.domain_mesh.shape, f"Boundary points ({self.bnd_points.shape}) and domain mesh ({self.domain_mesh.shape}) must have the same batch size."
                 
                 # Calculate ||G(x,y) - boundary conditions||
-                greens_function_boundary_eval = self.model(self.bnd_points, self.domain_mesh)
+                greens_function_boundary_eval = model(self.bnd_points, self.domain_mesh)
                 boundary_loss_term = self.train_loss_fn(greens_function_boundary_eval, torch.zeros_like(greens_function_boundary_eval))
                 loss += boundary_loss_term
 
-            self.optimizer.zero_grad()
+            optimizer.zero_grad()
             loss.backward()
-            self.optimizer.step()
+            optimizer.step()
 
             loss = loss.item()
 
@@ -84,9 +92,9 @@ class Trainer:
 
         return total_loss
     
-    def _test(self):
+    def _test(self, model):
         size = len(self.testloader.dataset)
-        self.model.eval()
+        model.eval()
         test_loss = torch.zeros(len(self.test_loss_fn))
         with torch.no_grad():
             for item in self.testloader:
@@ -94,7 +102,7 @@ class Trainer:
                 n_c, _ = get_corners_idx(domain=self.testd_constants.domain, mesh=item["crd"])
                 eval_mesh = item["crd"][n_c]
                 integration_mesh_values = item["f_vals"][n_c]
-                u_prediction = evaluate_greens_function_integral(greens_function=self.model, integration_mesh_values=integration_mesh_values, evaluation_mesh=eval_mesh, dataset_constants=self.test_data.constants)
+                u_prediction = evaluate_greens_function_integral(greens_function=model, integration_mesh_values=integration_mesh_values, evaluation_mesh=eval_mesh, dataset_constants=self.test_data.constants)
                 u_gt = item["u_vals"][n_c]
                 loss = torch.tensor([loss_fn(u_prediction, u_gt) for loss_fn in self.test_loss_fn])
                 test_loss += loss
@@ -127,56 +135,80 @@ class Trainer:
                 except OSError:
                     print("Warning: " + model_dir + " already exists.")
                     raise
-
+            
+            # Store best test loss and the associated train loss.
             best_test_loss = torch.tensor([float('inf') for _ in range(len(self.test_loss_fn))])
-            best_train_loss = torch.zeros_like(best_test_loss)
+            associated_train_loss = torch.zeros_like(best_test_loss)
 
-            ##Loop through the epochs and train the model.
-            for epoch in tqdm(range(config.num_epochs), desc="Training Epochs", leave=True):
-                train_loss = self._train()
-                test_loss = self._test()
+            # Store train and test loss trajectories for averaging purposes.
+            train_loss_log = torch.zeros((config.num_runs, config.num_epochs,1))
+            test_loss_log = torch.zeros((config.num_runs, config.num_epochs , len(self.test_loss_fn)))
 
-                if self.scheduler is not None:
-                    self.scheduler.step()
+            for i_run in tqdm(range(config.num_runs), desc=f"Training Runs", ascii="░▒█", leave=True):
                 
-                #Test metrics 
-                test_metrics = {f"test/total_{self.test_loss_fn[i]}": test_loss[i] for i in range(len(self.test_loss_fn))}
-                metrics = {f"train/total_{self.train_loss_fn}": train_loss, **test_metrics}
-                test_int_mesh_size = self.testd_constants.integration_mesh_size
-                train_int_mesh_size = self.traind_constants.integration_mesh_size
-                test_metrics = {f"test/int_mesh_resolution_norm_{self.test_loss_fn[i]}": test_loss[i]/(prod(test_int_mesh_size))for i in range(len(self.test_loss_fn))}
-                metrics = {f"train/int_mesh_resolution_norm_{self.train_loss_fn}": train_loss/prod(train_int_mesh_size), **test_metrics, **metrics}
+                model = self.model_cls(**self.model_params)
+                optimizer = self.optimizer_cls(params=model.parameters(), **self.optimizer_params)
+                if self.scheduler_cls is not None:
+                    scheduler = self.scheduler_cls(optimizer = optimizer, **self.scheduler_params)
+                else:
+                    scheduler = None
 
-                if 0 <= epoch:
-                    best_indices = torch.nonzero(test_loss < best_test_loss).squeeze()
-                    if best_indices.dim() > 0:
-                        for i in best_indices:
-                            best_test_loss[i] = test_loss[i]
-                            best_train_loss[i] = train_loss
+                if config.num_runs == 1:
+                    tqdm.write("Running trainer.")
+                else:
+                    tqdm.write(f"Running trainer in run: {i_run}.")
+                ##Loop through the epochs and train the model.
+                for epoch in tqdm(range(config.num_epochs), desc="Epochs", leave=False):
+                    train_loss = self._train(model=model, optimizer=optimizer)
+                    test_loss = self._test(model)
+
+                    train_loss_log[i_run, epoch] = train_loss
+                    test_loss_log[i_run, epoch] = test_loss
+
+                    if scheduler is not None:
+                        scheduler.step()
+                    
+                    if 0 <= epoch:
+                        best_indices = torch.nonzero(test_loss < best_test_loss).squeeze()
+                        if best_indices.dim() > 0:
+                            for i in best_indices:
+                                best_test_loss[i] = test_loss[i]
+                                associated_train_loss[i] = train_loss
+                                if not self.debug_mode:
+                                    tqdm.write(f"New best model found at epoch {epoch+1} with test loss {best_test_loss[i]}. Saving model.")
+                                    torch.save(model.state_dict(), model_dir + f"model_best_{self.test_loss_fn[i]}.pth")
+
+                    ## Log metrics
+                    if i_run == config.num_runs-1: 
+                        avg_test_loss = test_loss_log[:, epoch].mean(dim=0)
+                        avg_train_loss = train_loss_log[:, epoch].mean(dim=0)
+                        total_test_metrics = {f"test/total_{self.test_loss_fn[i]}": avg_test_loss[i] for i in range(len(self.test_loss_fn))}
+                        total_metrics = {f"train/total_{self.train_loss_fn}": avg_train_loss, **total_test_metrics}
+                        test_int_mesh_size = self.testd_constants.integration_mesh_size
+                        train_int_mesh_size = self.traind_constants.integration_mesh_size
+                        res_inv_test_metrics = {f"test/int_mesh_resolution_norm_{self.test_loss_fn[i]}": avg_test_loss[i]/(prod(test_int_mesh_size))for i in range(len(self.test_loss_fn))}
+                        res_inv_metrics = {f"train/int_mesh_resolution_norm_{self.train_loss_fn}": avg_train_loss/prod(train_int_mesh_size), **res_inv_test_metrics}
+                        metrics = {**total_metrics, **res_inv_metrics}
+                        
+                        # Log best loss
+                        if epoch == config.num_epochs - 1:
                             if not self.debug_mode:
-                                tqdm.write(f"New best model found at epoch {epoch+1} with test loss {best_test_loss[i]}. Saving model.")
-                                torch.save(self.model.state_dict(), model_dir + f"model_best_{self.test_loss_fn[i]}.pth")
-
-                if epoch == config.num_epochs - 1:
-                    if not self.debug_mode:
-                        
-                        for i, loss_fn in enumerate(self.test_loss_fn):
-                            metrics[f'best/{loss_fn}'] = test_loss[i]
-                        
-                        metrics[f'best/{self.train_loss_fn}'] = train_loss
-
-                if wandb_run is not None:
-                    wandb_run.log({**metrics})
-            ## End of training loop
+                                # Storing test loss 
+                                for i, loss_fn in enumerate(self.test_loss_fn):
+                                    metrics[f'best/{loss_fn}'] = best_test_loss[i]
+                                    metrics[f'best/{loss_fn}_assoc_train_loss'] = associated_train_loss[i]
+                        if wandb_run is not None:
+                            wandb_run.log({**metrics})
+                ## End of training loop
             
             if not self.debug_mode:
                 log_dict_as_json(config.__dict__, model_dir + 'config.json')
-                torch.save(self.model.state_dict(), model_dir +  "model_final.pth")
+                torch.save(model.state_dict(), model_dir +  "model_final.pth")
                 tqdm.write("Training complete. Saved final model to " + model_dir + "model_final.pth.")
-            return {"best_test_loss": best_test_loss, "best_train_loss": best_train_loss, "final_test_loss": test_loss, "final_train_loss": train_loss}
+            return {"best_test_loss": best_test_loss, "best_train_loss": associated_train_loss, "final_test_loss": test_loss, "final_train_loss": train_loss}
 
 
-        except Exception as e:
+        except Exception:
             if not self.debug_mode:
                 shutil.rmtree(model_dir)
                 print(f"Error occurred during training. Removed directory {model_dir}.")

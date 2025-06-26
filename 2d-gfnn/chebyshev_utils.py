@@ -68,26 +68,7 @@ def cheb_1d_impl(eval_points, values, domain):
             eval[i] = torch.sum(val * values) / torch.sum(val)
     return eval 
 
-def cheb_2d_impl(eval_points, values, domain):
-    '''
-    values: n x m (n x_nodes, m y_nodes)
-    '''
-    eval_x = eval_points[:, 0]
-    eval_y = eval_points[:, 1]
-    x_nodes = len(values)
-    
-    #for each y evaluate x
-    res1 = torch.zeros((x_nodes, len(eval_points)))
-    for i in range(x_nodes):
-        res1[i] = cheb_1d_impl(eval_y, values[i, :], domain[2:4])
-
-    res2 = torch.zeros(len(eval_points))
-    for i in range(len(eval_points)):
-        res2[i] = cheb_1d_impl(eval_x[i:i+1], res1[:, i], domain[0:2])
-    return res2
-
-
-def cheb_2d_impl_2(eval_points, values, chebyshev_size, domain):
+def cheb_2d_impl(eval_points, values, chebyshev_size, domain):
     '''
     Chebyshev interpolation in 2D. (use sample_chebyshev_points_3 to sample) \n
     :param Tensor eval_points: (n*m) x 2 (n x_nodes * m y_nodes)
@@ -163,22 +144,7 @@ if __name__ == "__main__":
 
     eval_points= sample_points((a, b, c, d), (2*n, 2*n), "chebyshev")
     eval_points = sample_points((a, b, c, d), 1000, "random")
-    values = cheb_2d_impl_2(eval_points=eval_points, values=f_vals, chebyshev_size=(n, n), domain=(a, b, c, d))
+    values = cheb_2d_impl(eval_points=eval_points, values=f_vals, chebyshev_size=(n, n), domain=(a, b, c, d))
     plot_points(points, f_vals, title="Chebyshev Interpolation 2D")
     plot_points(eval_points, values, title="Chebyshev Interpolation 2D")
 
-    assert False
-
-    domain = (0,1,0,1)
-    eval_points = sample_random_mesh_points(domain, 30)
-    cheb_points = sample_chebyshev_points_2(domain, (20, 20))
-    
-    def source_term(points):
-        x, y = points[..., 0], points[..., 1]
-        print(x)
-        return x
-
-    values = source_term(cheb_points)
-    eval_values = cheb_2d_impl(eval_points=eval_points, values=values, domain=domain)
-    plot_points(cheb_points.view(400, 2), values.view(400))
-    plot_points(eval_points, eval_values)

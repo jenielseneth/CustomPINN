@@ -3,14 +3,47 @@ import torch
 from collections.abc import Callable
 import scipy.integrate as integrate
 import numpy as np
-from dataset_utils import GreensConstantsDataclass
-from chebyshev_utils import cheb_2d_impl_2, clenshaw_curtis_weights_2d
-from constants_utils import mesh_type
+from dataset_utils import GreensConstantsDataclass, get_interior_boundary_idx
+from data_generation_utils import gcd_chebyshev_mesh_size, sample_points
+from chebyshev_utils import cheb_2d_impl
+from constants_utils import Hyperparameters, mesh_type
+from plot_utils import plot_points
 from loss import fetch_quadrature_weights
 
-    
+class InferenceUtils:
+    '''
+    Experimental class to store features for training and inference.
 
-def evaluate_greens_function_integral(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], evaluation_mesh, integration_mesh_values, dataset_constants: GreensConstantsDataclass, weights=None):
+    Attributes:
+        chebyshev_evaluation_mesh (c x 2 Tensor): Tensor to store a chebyshev evaluation mesh for chebyshev inference.
+        cheb_interior_indices (c_i Tensor): stores the indices of the interior points of the chebyshev evaluation mesh.
+        cheb_boundary_indices (c_b Tensor): stores the indices of the boundary points of the chebyshev evaluation mesh.
+        quadrature_weights (q Tensor): stores the quadrature weights of our datasets integration mesh (not to be confused with the chebyshev evaluation mesh).
+    '''
+    def __init__(self, constants: GreensConstantsDataclass, config: Hyperparameters):
+        if not constants.evaluation_mesh_type == "chebyshev":
+            
+            chebyshev_mesh_size = gcd_chebyshev_mesh_size(constants.integration_mesh_size)
+            self.chebyshev_evaluation_mesh = sample_points(constants.domain, chebyshev_mesh_size)
+        else: 
+            self.chebyshev_evaluation_mesh = sample_points(constants.domain, constants.evaluation_mesh_size)
+        
+        self.chebyshev_evaluation_mesh
+
+        self.cheb_interior_indices, self.cheb_boundary_indices = get_interior_boundary_idx(domain=constants.domain, mesh=self.chebyshev_evaluation_mesh)
+
+        if config.l_weights:
+            self.quadrature_weights = None
+        else:
+            self.quadrature_weights = fetch_quadrature_weights(domain=constants.domain, 
+                                                           integration_mesh_size=constants.integration_mesh_size, 
+                                                           integration_mesh_type=constants.integration_mesh_type)
+            self.quadrature_weights
+
+
+def evaluate_greens_function_integral(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], 
+                                      evaluation_mesh: torch.Tensor, integration_mesh_values: torch.Tensor, 
+                                      dataset_constants: GreensConstantsDataclass, inference_utils: InferenceUtils, device: torch.device):
 
     '''
     Calculates the predicted values using the learned Green's Function model. \n
@@ -20,8 +53,8 @@ def evaluate_greens_function_integral(greens_function: Callable[[Tuple[float, fl
     :param Tensor integration_mesh_values: b x f_size Tensor | f_size Tensor, where f_size is the number of points on the source term mesh.
     :param Tensor weights: f_size Tensor of weights for the quadrature rule, if None, we assume the model learns the weights.
     '''
-    integration_mesh = dataset_constants.integration_mesh
-    weights = dataset_constants.quadrature_weights
+    integration_mesh = dataset_constants.integration_mesh.to(device)
+    weights = inference_utils.quadrature_weights.to(device)
 
     assert evaluation_mesh.dim() == 2 and evaluation_mesh.shape[1] == 2, "evaluation_mesh must be a b x 2 Tensor."
 
@@ -40,7 +73,7 @@ def evaluate_greens_function_integral(greens_function: Callable[[Tuple[float, fl
     else:
         raise ValueError("integration_mesh_values must be of either dimension 1 or 2.")
 
-    x_input = torch.zeros_like(integration_mesh) + evaluation_mesh[:, None, :]  # b x f x 2 Tensor 
+    x_input = torch.zeros_like(integration_mesh).to(device) + evaluation_mesh[:, None, :]  # b x f x 2 Tensor 
     y_input = integration_mesh # b x f x 2 Tensor
 
     assert x_input.shape == y_input.shape and x_input.dim() == y_input.dim() == 3
@@ -52,19 +85,25 @@ def evaluate_greens_function_integral(greens_function: Callable[[Tuple[float, fl
     pred = torch.sum(integral, -1)  # b Tensor, sum over the f dimension
     return pred
 
-def chebyshev_inference(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], evaluation_coordinates, integration_mesh_values, dataset_constants: GreensConstantsDataclass, l_weights: bool):
+def chebyshev_inference(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], 
+                        evaluation_coordinates: torch.Tensor, integration_mesh_values: torch.Tensor, 
+                        dataset_constants: GreensConstantsDataclass, inference_utils: InferenceUtils,
+                        boundary_condition: float):
     '''
-    Calculates u(x) on an evaluation chebyshev mesh, which is then used to 
-    '''
-    if l_weights:
-        weights = None
-    else:
-        weights = dataset_constants.quadrature_weights
-    
-    u_pred = evaluate_greens_function_integral(greens_function=greens_function, 
-                                        evaluation_mesh=dataset_constants.chebyshev_evaluation_mesh,
-                                        dataset_constants=dataset_constants,
-                                        integration_mesh=dataset_constants.integration_mesh, integration_mesh_values=integration_mesh_values, weights=weights)
-    # u_pred[bnd] = 0 # Boundary condition
-    u_pred_uniform = cheb_2d_impl_2(eval_points=evaluation_coordinates, values=u_pred, chebyshev_size=dataset_constants.evaluation_mesh_size, domain=dataset_constants.domain)
+    Calculates u(x) on an evaluation chebyshev mesh, which is used to interpolate the values at evaluation_coordinates. \n
 
+    :param b x 2 Tensor evaluation_coordinates: 
+    :param f integration_mesh_values: 
+    '''
+    assert type(boundary_condition) == float, "Currently only implemented for constant boundary conditions." 
+    
+    u_pred_cheb = evaluate_greens_function_integral(greens_function=greens_function, 
+                                        evaluation_mesh=inference_utils.chebyshev_evaluation_mesh,
+                                        integration_mesh_values=integration_mesh_values,
+                                        dataset_constants=dataset_constants, 
+                                        inference_utils=inference_utils)
+    u_pred_cheb[inference_utils.cheb_boundary_indices] = boundary_condition # Boundary condition
+    u_pred_eval = cheb_2d_impl(eval_points=evaluation_coordinates, values=u_pred_cheb, 
+                               chebyshev_size=dataset_constants.evaluation_mesh_size, domain=dataset_constants.domain)
+
+    return u_pred_eval

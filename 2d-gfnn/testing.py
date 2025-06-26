@@ -1,4 +1,4 @@
-from chebyshev_utils import cheb_2d_impl, sample_chebyshev_points_2
+from chebyshev_utils import sample_chebyshev_points_2
 from data_generation_utils import sample_random_mesh_points, sample_chebyshev_points_3
 
 

@@ -21,6 +21,12 @@ def plot_points(points, values = None, cmap='viridis', title="", save_dir = None
         
 def plot_multiple_points(points_list, values_list, title_list = None, cmap_list = None, 
                         main_title = None, save_dir = None, save_name = None, show: bool = True):
+    '''
+    Plots multiple meshes and their corresponding values.
+    '''
+    assert len(values_list) == len(points_list), "Points list must have same number of elements as corresponding values in values list."
+    assert len(points_list) == len(title_list), "Must have a title for each plotted mesh in points_list."
+    assert len(points_list) == len(cmap_list), "Must have a color map for each plotted mesh in points_list."
 
     plt.suptitle(main_title)
     for i, points in enumerate(points_list):

@@ -75,6 +75,9 @@ def expr_to_func(exprs):
 def func_input_wrapper(funcs):
     '''
     changes functions that take x, y as input to taking points of form batch_size x 2 as input.
+
+    Returns:
+        changed_funcs (list): List of input functions.
     '''
     changed_funcs = [lambda points, f=f: torch.ones(len(points)) * f(points[:, 0], points[:, 1]) for f in funcs]
     return changed_funcs

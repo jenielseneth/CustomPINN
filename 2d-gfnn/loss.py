@@ -15,6 +15,7 @@ def fetch_quadrature_weights(domain, integration_mesh_size, integration_mesh_typ
     :param tuple mesh_size: (x_num, y_num) number of points per axis over mesh.
     :param integration_mesh_type: Type of mesh we integrate over.
 
+    :return x_num * y_num Tensor weights: quadrature weight corresponding to each point on our mesh.
     '''
     if integration_mesh_type == "chebyshev":
         area_ratio = (domain[1]-domain[0])*(domain[3]-domain[2])/(4)

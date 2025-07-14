@@ -7,6 +7,7 @@ import torch
 
 
 mesh_type = Literal["uniform", "chebyshev", "random"]
+
 class BoundaryPointLossParams(TypedDict):
     bnd_points_size : tuple
     domain_mesh_size : tuple
@@ -28,6 +29,7 @@ class Hyperparameters:
     scheduler_params: dict
     l_weights: bool
     num_epochs: int
+    boundary_loss: bool
     num_runs: int = 1
     device: torch.device = torch.device("mps")
 
@@ -65,11 +67,12 @@ class Hyperparameters:
 
                 
     def get_dict(self):
-        output = self.__dict__
+        output = self.__dict__.copy()
         output["model_cls"] = str(self.model_cls)
         output["optimizer_cls"] = str(self.optimizer_cls)
         if self.scheduler_cls is not None:
             output["scheduler_cls"] = str(self.scheduler_cls)
+        output["device"] = str(self.device)
         return output
 
 
@@ -85,7 +88,7 @@ class ExprParameters:
 @dataclass
 class DataGenerationParameters:
     '''
-    Defines the parameters used in data generation
+    Defines the parameters used in data generation. Purely for generating a json file for overview.
     '''
     domain: tuple
     evaluation_mesh_size: tuple
@@ -96,6 +99,7 @@ class DataGenerationParameters:
     a_diffusion_expr: sp.Expr
     u_func_exprs: list[sp.Expr]
     f_func_exprs: list[sp.Expr]
+    params: dict
 
     def str_to_sympy_expr(self):
         self.u_bnd_expr = sp.sympify(self.u_bnd_expr)
@@ -105,11 +109,15 @@ class DataGenerationParameters:
         return self
     
     def get_dict(self):
-        output_dict = self.__dict__
-        output_dict["u_bnd_expr"] = str(self.u_bnd_expr)
-        output_dict["a_diffusion_expr"] = str(self.a_diffusion_expr)
-        output_dict["u_func_exprs"] = [str(expr) for expr in self.u_func_exprs]
-        output_dict["f_func_exprs"] = [str(expr) for expr in self.f_func_exprs]
+        output_dict = self.__dict__.copy()
+        if self.u_bnd_expr is not None:
+            output_dict["u_bnd_expr"] = str(self.u_bnd_expr)
+        if self.a_diffusion_expr is not None:
+            output_dict["a_diffusion_expr"] = str(self.a_diffusion_expr)
+        if self.u_func_exprs is not None:
+            output_dict["u_func_exprs"] = [str(expr) for expr in self.u_func_exprs]
+        if self.f_func_exprs is not None:
+            output_dict["f_func_exprs"] = [str(expr) for expr in self.f_func_exprs]
         return output_dict
 
     

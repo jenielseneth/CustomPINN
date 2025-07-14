@@ -1,8 +1,10 @@
 import math
+import numpy as np
 import torch
 
 from data_generation_utils import sample_points
-from plot_utils import plot_points
+from plot_utils import plot_convergence_rate, plot_points
+from scipy.stats import linregress
 
 def sample_chebyshev_points_2(domain, num_points: tuple):
     x_num, y_num = num_points
@@ -23,7 +25,7 @@ def sample_chebyshev_points_2(domain, num_points: tuple):
             xy[i,j] = torch.tensor([points_x[i], points_y[j]])
     return xy
 
-def cheb_1d_points(domain, num_points: int):
+def cheb_1d_points(domain, num_points: int) -> torch.Tensor:
     x_min, x_max = domain
     points_x = torch.linspace(0, num_points-1, num_points) * torch.pi / (num_points-1)
     points_x = torch.cos(points_x)
@@ -33,7 +35,7 @@ def cheb_1d_points(domain, num_points: int):
     return points_x
 
 
-def cheb_weights(n):
+def cheb_weights(n) -> torch.Tensor:
     '''
     Calculates the Chebyshev weights for 0,1,...,n points of the second kind.
     If you have e.g. a total length 10 chebyshev nodes, input n = 9 to get the weights for nodes 0,1,...,9. \n
@@ -48,13 +50,16 @@ def cheb_weights(n):
     weights[-1] *= 0.5
     return weights
 
-def cheb_1d_impl(eval_points, values, domain):
+def cheb_1d_impl(eval_points: torch.Tensor, values: torch.Tensor, domain: tuple) -> torch.Tensor:
     '''
     Chebyshev interpolation in 1D. \n
     :param Tensor eval_points: m x 1 (m points to evaluate) 
     :param Tensor values: n x 1 (n values at the Chebyshev nodes)
     :param tuple domain: (x_min, x_max)
+
+    :return Tensor eval: m x 1 (m values at eval_points) 
     '''
+
     n = len(values)
     points = cheb_1d_points(domain, n)
     weights = cheb_weights(n-1)
@@ -68,7 +73,7 @@ def cheb_1d_impl(eval_points, values, domain):
             eval[i] = torch.sum(val * values) / torch.sum(val)
     return eval 
 
-def cheb_2d_impl(eval_points, values, chebyshev_size, domain):
+def cheb_2d_impl(eval_points: torch.Tensor, chebyshev_values: torch.Tensor, chebyshev_size, domain):
     '''
     Chebyshev interpolation in 2D. (use sample_chebyshev_points_3 to sample) \n
     :param Tensor eval_points: (n*m) x 2 (n x_nodes * m y_nodes)
@@ -76,17 +81,36 @@ def cheb_2d_impl(eval_points, values, chebyshev_size, domain):
     :param tuple domain: (x_min, x_max, y_min, y_max)
     '''
     x_nodes, y_nodes = chebyshev_size
-    assert len(values) == x_nodes * y_nodes, f"Values shape {len(values)} does not match expected size {x_nodes * y_nodes} for chebyshev_size {chebyshev_size}."
+    assert len(chebyshev_values) == x_nodes * y_nodes, f"Values shape {len(chebyshev_values)} does not match expected size {x_nodes * y_nodes} for chebyshev_size {chebyshev_size}."
+    
+    assert eval_points.device == chebyshev_values.device, f"eval_points ({eval_points.device}) and values ({chebyshev_values.device}) are not on the same device."
+    print("Chebyshev 2D Interpolation implentation doesn't perform well on the domain boundary. Investigation is required.")
 
     eval_x = eval_points[:, 0]
     eval_y = eval_points[:, 1]
-    res1 = torch.zeros((y_nodes, len(eval_points)))
+    res1 = torch.zeros((y_nodes, len(eval_points)), device=eval_points.device)
     for i in range(y_nodes):
-        res1[i] = cheb_1d_impl(eval_x, values[i*x_nodes:(i+1)*x_nodes], domain[0:2])
-    res2 = torch.zeros(len(eval_points))
+        res1[i] = cheb_1d_impl(eval_x, chebyshev_values[i*x_nodes:(i+1)*x_nodes], domain[0:2])
+    res2 = torch.zeros(len(eval_points), device=eval_points.device)
     for i in range(len(eval_points)):
         res2[i] = cheb_1d_impl(eval_y[i:i+1], res1[:, i], domain[2:4])
     return res2
+
+def cheb_2d_impl_convergence_rate_debugger(eval_points: torch.Tensor, evaluation_values: torch.Tensor, chebyshev_values: list[torch.Tensor], chebyshev_sizes: list[tuple], domain: tuple):
+    error_rates = torch.zeros(len(chebyshev_sizes))
+    h_values = list(map(lambda f: f[0], chebyshev_sizes))
+    for i, chebyshev_size in enumerate(chebyshev_sizes):
+        approx_eval = cheb_2d_impl(eval_points=eval_points, chebyshev_values=chebyshev_values[i], chebyshev_size=chebyshev_size, domain=domain)
+        error_rates[i] = torch.sum(torch.abs(approx_eval-evaluation_values))
+    
+    log_h = np.log(h_values)
+    log_E = np.log(error_rates)
+    slope, intercept, _, _, _ = linregress(log_h, log_E)
+    p = slope
+
+    h = np.linspace(3, 100, 100)
+    errors = h**slope * np.exp(intercept)
+    plot_convergence_rate(h=h, error=errors, discrete_h_values=h_values, discrete_error_values=error_rates, p=p)
 
 
 def clenshaw_curtis_weights(n):
@@ -143,8 +167,8 @@ if __name__ == "__main__":
     print(eval-gt)
 
     eval_points= sample_points((a, b, c, d), (2*n, 2*n), "chebyshev")
-    eval_points = sample_points((a, b, c, d), 1000, "random")
-    values = cheb_2d_impl(eval_points=eval_points, values=f_vals, chebyshev_size=(n, n), domain=(a, b, c, d))
+    eval_points = sample_points((a, b, c, d), (33, 33), "uniform")
+    values = cheb_2d_impl(eval_points=eval_points, chebyshev_values=f_vals, chebyshev_size=(n, n), domain=(a, b, c, d))
     plot_points(points, f_vals, title="Chebyshev Interpolation 2D")
     plot_points(eval_points, values, title="Chebyshev Interpolation 2D")
 

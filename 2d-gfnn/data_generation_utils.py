@@ -6,6 +6,7 @@ import numpy as np
 from tqdm import tqdm
 from expr_generation_utils import expr_to_func, func_input_wrapper
 from constants_utils import DataGenerationParameters
+from poisson_utils import generate_poisson_points
 from random_utils import log_dict_as_json
 import matplotlib.pyplot as plt
 import sympy
@@ -121,7 +122,60 @@ def sample_points(domain, mesh_size: tuple, mesh_type: typing.Literal["chebyshev
     return mesh
 
 
-def generate_points(domain, 
+
+def generate_points(domain, save_dir: str, file_name: str, log_file_name: str,
+                    num_f_terms: int, 
+                    u_mesh_size: tuple, f_mesh_size: tuple, 
+                    u_mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev",
+                    f_mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev",
+                    ):
+    
+    u_points = sample_points(domain=domain, mesh_size=u_mesh_size, mesh_type=u_mesh_type)
+    f_points = sample_points(domain=domain, mesh_size=f_mesh_size, mesh_type=f_mesh_type)
+
+    output_dict = generate_poisson_points(n=num_f_terms, domain=domain, eval_points=u_points, integration_points=f_points)
+
+    #Use vstack to concatenate mesh_points and f_mesh, as they are 2D tensors.
+    mesh_points = torch.vstack([u_points for _ in range(num_f_terms)]) # size: (N, 2)
+    # u_values = torch.hstack([data['u_values'] for i in range(num_f_terms)]) # size: (N,)
+    u_values = output_dict["u_values"] # size: (N,)
+
+    f_mesh = torch.stack([f_points for _ in range(num_f_terms)]) # size: (num_expr, f_mesh_size, 2)
+    # f_values = torch.vstack([data['f_values'] for i in range(num_f_terms)]) # size: (num_expr, f_mesh_size)
+    f_values = output_dict["f_values"] # size: (num_expr, f_mesh_size)
+
+
+    start = 0
+    data_addresses = []
+    for i in range(num_f_terms):
+        address = (start, start + len(u_points))
+        start += len(u_points)
+        data_addresses.append(address)
+    
+    data = {'coordinates': mesh_points, 'u_values': u_values, 'f_values': f_values, 
+            "f_meshes": f_mesh, "f_mesh_type": f_mesh_type, "u_mesh_type": u_mesh_type, 
+            "u_mesh_size": u_mesh_size, "f_mesh_size": f_mesh_size,
+            "data_addresses": data_addresses, "domain": domain, "parameters": output_dict["parameters"]}
+    
+
+    dg_params = DataGenerationParameters(domain=domain,
+                                         evaluation_mesh_size=u_mesh_size,
+                                         evaluation_mesh_type=u_mesh_type,
+                                         integration_mesh_size=f_mesh_size,
+                                         integration_mesh_type=f_mesh_type,
+                                        u_func_exprs=None,
+                                        f_func_exprs=None,
+                                        u_bnd_expr=None,
+                                        a_diffusion_expr=None,
+                                        params=output_dict["parameters"]
+                                        )
+    
+    log_dict_as_json(dg_params.get_dict(), save_dir + log_file_name)
+    torch.save(data, save_dir + file_name)
+    print("Saved generated points into " + save_dir + ".")
+    return
+
+def generate_points_2(domain, 
                     u_exprs: list[sympy.Expr], f_exprs: list[sympy.Expr],
                     save_dir: str, u_mesh_size: tuple, f_mesh_size: tuple, 
                     training_data: bool= True, 

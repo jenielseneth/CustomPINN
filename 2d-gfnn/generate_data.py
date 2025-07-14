@@ -18,10 +18,10 @@ if __name__ == "__main__":
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     
     ##Define domain values
-    x_min, x_max = 0, 1 
+    x_min, x_max = 0, 1
     y_min, y_max = 0, 1
     domain = (x_min, x_max, y_min, y_max)
-
+    
     # Ask about pre-generated function expressions.
     user_input = input("Model dir of existing expressions? Press enter to skip:")
 
@@ -37,13 +37,14 @@ if __name__ == "__main__":
         f_train_exprs = train_params.f_func_exprs
         u_test_exprs = test_params.u_func_exprs
         f_test_exprs = test_params.f_func_exprs
-        print(type(u_train_exprs[0]))
+
+        domain = train_params.domain
         
     elif user_input == "":
         print("Generating function expressions.")
         # Generate source terms, u_functions and diffusion term
         boundary = True
-        n_u_expr = 10
+        n_u_expr = 100
 
         if boundary == True:
             u_bnd_expr = get_u_bnd_expr()
@@ -59,11 +60,14 @@ if __name__ == "__main__":
         print("Please provide a valid directory or press enter.")
         raise NotADirectoryError(f"{"./res/" + user_input} is not a valid directory.")
     u_train_mesh_type: mesh_type = "chebyshev"
-    u_train_mesh_size = (18,18)
+    u_train_mesh_size = (20,20)
     u_test_mesh_type: mesh_type = "chebyshev"
-    u_test_mesh_size = (18,18)
+    u_test_mesh_size = (20,20)
     f_mesh_type: mesh_type = "chebyshev"
-    f_mesh_sizes = [(5,5), (10,10), (15,15), (20,20), (25, 25), (27, 27), (30,30), (35, 35)]
+    f_mesh_sizes = [(5,5), (10,10), (15,15), (21,21), (25, 25), (27, 27), (30,30), (35, 35)]
+    # f_mesh_sizes = [ (3,2), (4,3), (5,4), (6, 5), (7, 6)]
+    # f_mesh_sizes = [(10,10)]
+    f_mesh_sizes = [(3,3), (4,4), (5,5), (6,6), (7,7), (8,8), (9,9), (10,10), (15,15)]
 
     for i, f_mesh_size in enumerate(f_mesh_sizes):
         #Ensure the chebyshev points don't overlap:
@@ -86,8 +90,8 @@ if __name__ == "__main__":
             if overlap:
                 user_input = input("The chebyshev points may overlap, do you want to continue? (y/n): ")
                 if user_input.lower() != 'y':
-                    print("Exiting data generation.")
-                    exit()
+                    print(f"Skipping data generation with f mesh {f_mesh_size}.")
+                    continue
             else:
                 print("Chebyshev points do not overlap, proceeding with data generation.")
         
@@ -103,23 +107,40 @@ if __name__ == "__main__":
         else:
             print("Warning: " + dir + " already exists.")
         
-        #Train data 
-        generate_points(domain=domain,     
-                    u_exprs=u_train_exprs, f_exprs=f_train_exprs,
-                    u_mesh_size=u_train_mesh_size, 
-                    u_mesh_type=u_train_mesh_type, f_mesh_type=f_mesh_type,
-                    save_dir=dir, training_data=True, 
-                    f_mesh_size=f_mesh_size, 
-                    a_expression=a_expr, u_bnd_expr=u_bnd_expr)
+        # #Train data 
+        # generate_points(domain=domain,     
+        #             u_exprs=u_train_exprs, f_exprs=f_train_exprs,
+        #             u_mesh_size=u_train_mesh_size, 
+        #             u_mesh_type=u_train_mesh_type, f_mesh_type=f_mesh_type,
+        #             save_dir=dir, training_data=True, 
+        #             f_mesh_size=f_mesh_size, 
+        #             a_expression=a_expr, u_bnd_expr=u_bnd_expr)
         
-        #Test data 
-        generate_points(domain=domain,     
-                    u_exprs=u_test_exprs, f_exprs=f_test_exprs,
-                    u_mesh_size=u_test_mesh_size, 
-                    u_mesh_type=u_test_mesh_type, f_mesh_type=f_mesh_type,
-                    save_dir=dir, training_data=False, 
-                    f_mesh_size=f_mesh_size, 
-                    a_expression=a_expr, u_bnd_expr=u_bnd_expr)
+        # #Test data 
+        # generate_points(domain=domain,     
+        #             u_exprs=u_test_exprs, f_exprs=f_test_exprs,
+        #             u_mesh_size=u_test_mesh_size, 
+        #             u_mesh_type=u_test_mesh_type, f_mesh_type=f_mesh_type,
+        #             save_dir=dir, training_data=False, 
+        #             f_mesh_size=f_mesh_size, 
+        #             a_expression=a_expr, u_bnd_expr=u_bnd_expr)
+
+
+
+        # Train data
+        generate_points(domain=domain, save_dir=dir, 
+                        file_name="data_train.pt", log_file_name="train_params.json",
+                        num_f_terms=n_u_expr, 
+                        u_mesh_size=u_train_mesh_size, u_mesh_type=u_train_mesh_type, 
+                        f_mesh_size=f_mesh_size, f_mesh_type=f_mesh_type)
+        
+
+        # Test data
+        generate_points(domain=domain, save_dir=dir, 
+                        file_name="data_test.pt", log_file_name="test_params.json",
+                        num_f_terms=n_u_expr, 
+                        u_mesh_size=u_train_mesh_size, u_mesh_type=u_train_mesh_type, 
+                        f_mesh_size=f_mesh_size, f_mesh_type=f_mesh_type)
 
 
 
@@ -128,21 +149,21 @@ if __name__ == "__main__":
         name = "data_train.pt"
         plot_title = "Training "
         points = torch.load(dir + name)
-        test_ind = 0
-        slice_ind = slice(*points["data_addresses"][test_ind])
+        train_ind = random.randint(0, len(u_train_exprs)-1)
+        slice_ind = slice(*points["data_addresses"][train_ind])
         u_coordinates = points["coordinates"][slice_ind]
         u_values = points["u_values"][slice_ind]
         plot_points(u_coordinates, u_values, title=plot_title + f'u(x) Data')
         
-        f_values = points["f_values"][test_ind]
-        f_mesh = points["f_meshes"][test_ind]
+        f_values = points["f_values"][train_ind]
+        f_mesh = points["f_meshes"][train_ind]
         plot_points(f_mesh, f_values,title=plot_title + f'f(x) Data')
 
 
         name = "data_test.pt"
         plot_title = "Test "
         points = torch.load(dir + name)
-        test_ind = 0
+        test_ind = random.randint(0, len(u_test_exprs)-1)
         slice_ind = slice(*points["data_addresses"][test_ind])
         u_coordinates = points["coordinates"][slice_ind]
         u_values = points["u_values"][slice_ind]

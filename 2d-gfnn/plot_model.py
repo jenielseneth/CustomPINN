@@ -1,6 +1,7 @@
 import os
 import torch
 from matplotlib import pyplot as plt
+from tqdm import tqdm
 from PINN import CustomPINN_Green2D
 from PINN_2 import CustomPINN_Green2D_2
 from plot_utils import plot_multiple_points
@@ -25,15 +26,15 @@ if not os.path.exists(model_dir):
 data_dir = main_dir + "data/"
 figure_dir = model_dir + "figures/"
 
+# Retrieve needed parameters
 config_dict = retrieve_dict_from_json(model_dir + "config.json")
 config = Hyperparameters(**config_dict)
-
 test_data = GreenPINNDataset(data_file_path=data_dir, data_file_name="data_test.pt")
+# test_data.constants.to_device(config.device)
 training_utils = InferenceUtils(constants=test_data.constants, config=config)
-# model = CustomPINN_Green2D(num_layers=config.num_layers, hidden_size=config.hidden_channels, domain=test_data.constants.domain, l_weights=config.l_weights)
-# model = CustomPINN_Green2D_2(num_layers=num_layers, hidden_size=hidden_layers, domain=domain, l_weights=l_weights)
-model = config.model_cls(**config.model_params)
+# training_utils.to_device(config.device)
 
+model = config.model_cls(**config.model_params)
 model.load_state_dict(torch.load(model_dir + "model_best_MSELoss().pth"))
 model.eval()
 
@@ -47,23 +48,27 @@ f_funcs = func_input_wrapper(expr_to_func(test_data.f_func_str_exprs))
 # data_mesh = sample_points(test_data.constants.domain, mesh_size=test_data.constants.evaluation_mesh_size, mesh_type="chebyshev") #temporary solution to get around corner issue: when excluding corners during generation, causes issues when chebyshev interpolation
 
 total_loss = 0
-for i in range(num_data):
+for i in tqdm(range(num_data)):
     u_func = u_funcs[i]
     f_func = f_funcs[i]
 
     f_values, f_mesh = test_data.f_values[i], test_data.f_meshes[i]
+
 
     #Get approximated u(x) on data mesh
 
     u_pred_data_mesh = evaluate_greens_function_integral(greens_function=model, 
                                         evaluation_mesh=data_mesh,
                                         integration_mesh_values=f_values, 
-                                        dataset_constants=test_data.constants, inference_utils=training_utils)
+                                        integration_mesh=test_data.constants.integration_mesh, 
+                                        quadrature_weights=training_utils.quadrature_weights)
     
     u_pred_uniform = chebyshev_inference(greens_function=model, evaluation_coordinates=uniform_mesh,
                                          integration_mesh_values=f_values, dataset_constants=test_data.constants,
                                          inference_utils=training_utils, boundary_condition=0.)
 
+    # u_pred_data_mesh = u_pred_data_mesh.to("cpu")
+    # u_pred_uniform = u_pred_uniform.to("cpu")
 
     #Plot ground truths
     u_gt_uniform_mesh = u_func(uniform_mesh)
@@ -71,9 +76,9 @@ for i in range(num_data):
 
     #Plot source term on uniform mesh
     source_term = f_func(uniform_mesh)
-
     #Parameters
     points_list = [uniform_mesh, uniform_mesh, uniform_mesh, uniform_mesh, data_mesh, data_mesh]
+
     values_list = [u_pred_uniform, u_gt_uniform_mesh, 
                    torch.nn.functional.mse_loss(u_pred_uniform, u_gt_uniform_mesh, reduction="none"), source_term, 
                    u_pred_data_mesh, u_gt_data_mesh]

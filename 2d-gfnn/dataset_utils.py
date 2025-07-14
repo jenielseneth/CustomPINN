@@ -3,8 +3,6 @@ import torch
 from torch.utils.data import Dataset
 from plot_utils import plot_points
 from constants_utils import mesh_type
-from loss import fetch_quadrature_weights
-from data_generation_utils import gcd_chebyshev_mesh_size, sample_points
 import sympy
 
 
@@ -94,6 +92,8 @@ class GreensConstantsDataclass:
     evaluation_mesh_size: tuple
     integration_mesh_size: tuple
 
+    def to_device(self, device):
+        self.integration_mesh = self.integration_mesh.to(device)
 class GreenPINNDataset(Dataset):
     '''
     Wrapper to retrieve all datasets and store them into one main dataset wrapper.
@@ -125,9 +125,9 @@ class GreenPINNDataset(Dataset):
 
 
         ## Sympy evaluate functions
-        self.u_gt_func_exprs = [self._str_to_sympy_expr(expr) for expr in self.data["u_gt_func_exprs"]]
-        self.f_func_str_exprs = [self._str_to_sympy_expr(expr) for expr in self.data["f_func_str_exprs"]]
-        self.u_bnd_func_exprs = [self._str_to_sympy_expr(expr) for expr in self.data["u_bnd_func_exprs"]]
+        # self.u_gt_func_exprs = [self._str_to_sympy_expr(expr) for expr in self.data["u_gt_func_exprs"]]
+        # self.f_func_str_exprs = [self._str_to_sympy_expr(expr) for expr in self.data["f_func_str_exprs"]]
+        # self.u_bnd_func_exprs = [self._str_to_sympy_expr(expr) for expr in self.data["u_bnd_func_exprs"]]
 
     def _str_to_sympy_expr(self, s: str):
         '''

@@ -4,9 +4,10 @@ from matplotlib import animation, pyplot as plt
 import numpy as np
 import torch
 
-plt.rcParams["figure.figsize"] = (10, 10)
+
 
 def plot_points(points, values = None, cmap='viridis', title="", save_dir = None, save_name = None):
+    plt.rcParams["figure.figsize"] = (10, 10)
     if values is not None:
         values = values.detach().numpy()
     scatter = plt.scatter(points[:, 0].detach().numpy(), points[:,1].detach().numpy(), c=values, cmap=cmap)
@@ -22,13 +23,15 @@ def plot_points(points, values = None, cmap='viridis', title="", save_dir = None
 
         
 def plot_multiple_points(points_list, values_list, title_list = None, cmap_list = None, axs_size: tuple = (3,2),
-                        main_title = None, save_dir = None, save_name = None, show: bool = True, log_info: str = ""):
+                        main_title = None, save_dir = None, save_name = None, show: bool = True, log_info: str = "", figsize: tuple = (10, 10)):
     '''
     Plots multiple meshes and their corresponding values.
     '''
     assert len(values_list) == len(points_list), "Points list must have same number of elements as corresponding values in values list."
     assert title_list is None or len(points_list) == len(title_list), "Must have a title for each plotted mesh in points_list."
     assert cmap_list is None or len(points_list) == len(cmap_list), "Must have a color map for each plotted mesh in points_list."
+    plt.rcParams["figure.figsize"] = figsize
+
     fig, axs = plt.subplots(*axs_size)
     plt.suptitle(main_title)
     for i, points in enumerate(points_list):

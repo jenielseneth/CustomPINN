@@ -30,8 +30,17 @@ class Hyperparameters:
     l_weights: bool
     num_epochs: int
     boundary_loss: bool
+    # harmonic_u_loss: bool
+    harmonic_psi_loss: bool
+    train_subset_idx: int = None
+    test_subset_idx: int = None
+    # harmonic_u_loss_factor: float = 1.0
+    harmonic_psi_loss_factor: float = 1.0
+    boundary_loss_factor: float = 1.0
+    prediction_loss_factor: float = 1.0
     num_runs: int = 1
     device: torch.device = torch.device("mps")
+    wandb_project_name: str = "test"
 
     def __post_init__(self):
         if self.num_runs < 1:
@@ -95,29 +104,11 @@ class DataGenerationParameters:
     evaluation_mesh_type: mesh_type
     integration_mesh_size: tuple
     integration_mesh_type: mesh_type
-    u_bnd_expr: sp.Expr
-    a_diffusion_expr: sp.Expr
-    u_func_exprs: list[sp.Expr]
-    f_func_exprs: list[sp.Expr]
     params: dict
+    diffusion_params: dict
 
-    def str_to_sympy_expr(self):
-        self.u_bnd_expr = sp.sympify(self.u_bnd_expr)
-        self.a_diffusion_expr = sp.sympify(self.a_diffusion_expr)
-        self.u_func_exprs = [sp.sympify(expr) for expr in self.u_func_exprs]
-        self.f_func_exprs = [sp.sympify(expr) for expr in self.f_func_exprs]
-        return self
-    
     def get_dict(self):
         output_dict = self.__dict__.copy()
-        if self.u_bnd_expr is not None:
-            output_dict["u_bnd_expr"] = str(self.u_bnd_expr)
-        if self.a_diffusion_expr is not None:
-            output_dict["a_diffusion_expr"] = str(self.a_diffusion_expr)
-        if self.u_func_exprs is not None:
-            output_dict["u_func_exprs"] = [str(expr) for expr in self.u_func_exprs]
-        if self.f_func_exprs is not None:
-            output_dict["f_func_exprs"] = [str(expr) for expr in self.f_func_exprs]
         return output_dict
 
     

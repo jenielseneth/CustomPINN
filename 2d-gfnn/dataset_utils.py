@@ -99,35 +99,54 @@ class GreenPINNDataset(Dataset):
     Wrapper to retrieve all datasets and store them into one main dataset wrapper.
     All datasets are concatenated with each other.
     We use a pointer system for mapping u_values with their corresponding f_meshes and f_values to avoid duplicate copies of the data.
+
+    Attributes:
+        self.constants (GreensConstantsDataclass): Contains the constants of the dataset.
+        self.length (int): Length of the dataset.
+        self.data_length (int): Total amount of source terms.
+        self.evaluation_mesh (Tensor): b x 2 Tensor of evaluation points.
+        self.evaluation_values (Tensor): b x 1 Tensor of evaluation values.
+        self.f_meshes (Tensor): f_size x 2 Tensor of source term meshes.
+        self.f_values (Tensor): f_size x 1 Tensor of source term values.
+        self.f_inds (list[int]): List of indices to map evaluation points to their corresponding source term mesh and values.
+        self.sub_lengths (list[tuple]): List of tuples containing the start and end indices of each subdataset for a given source term.
+    
     '''
-    def __init__(self, data_file_path, data_file_name: str, ):
-        self.data = torch.load(data_file_path + data_file_name)
+    def __init__(self, data_file_path, data_file_name: str, subset_idx: int = None):
+        data = torch.load(data_file_path + data_file_name)
 
         self.constants = GreensConstantsDataclass(
-            domain=self.data["domain"],
-            integration_mesh=self.data["f_meshes"][0],
-            evaluation_mesh_type=self.data["u_mesh_type"],
-            integration_mesh_type=self.data["f_mesh_type"],
-            evaluation_mesh_size=self.data["u_mesh_size"],
-            integration_mesh_size=self.data["f_mesh_size"]
+            domain=data["domain"],
+            integration_mesh=data["f_meshes"][0],
+            evaluation_mesh_type=data["u_mesh_type"],
+            integration_mesh_type=data["f_mesh_type"],
+            evaluation_mesh_size=data["u_mesh_size"],
+            integration_mesh_size=data["f_mesh_size"]
         )
         
-        self.length = len(self.data["u_values"])
-        self.evaluation_mesh = self.data["coordinates"]
-        self.evaluation_values = self.data["u_values"]
-        self.f_values = self.data["f_values"]
-        self.f_meshes = self.data["f_meshes"]
+        self.length = len(data["u_values"])
+        self.data_length = len(data["f_meshes"])
+        self.evaluation_mesh = data["coordinates"]
+        self.evaluation_values = data["u_values"]
+        self.f_meshes = data["f_meshes"]
+        self.f_values = data["f_values"]
 
         self.f_inds = [0] * self.length
-        self.sub_lengths = self.data["data_addresses"]
-        for i, address in enumerate(self.data["data_addresses"]):
+        self.sub_lengths = data["data_addresses"]
+        for i, address in enumerate(data["data_addresses"]):
             self.f_inds[slice(*address)] = [i] * (address[1]-address[0])
 
+        if subset_idx is not None:
+            assert subset_idx < self.length, f"sub_idx {subset_idx} is out of bounds for the dataset with length {self.length}."
+            self.evaluation_mesh = self.evaluation_mesh[0:subset_idx]
+            self.evaluation_values = self.evaluation_values[0:subset_idx]
+            self.f_inds = self.f_inds[0:subset_idx]
+            self.length = subset_idx
 
         ## Sympy evaluate functions
-        # self.u_gt_func_exprs = [self._str_to_sympy_expr(expr) for expr in self.data["u_gt_func_exprs"]]
-        # self.f_func_str_exprs = [self._str_to_sympy_expr(expr) for expr in self.data["f_func_str_exprs"]]
-        # self.u_bnd_func_exprs = [self._str_to_sympy_expr(expr) for expr in self.data["u_bnd_func_exprs"]]
+        # self.u_gt_func_exprs = [self._str_to_sympy_expr(expr) for expr in data["u_gt_func_exprs"]]
+        # self.f_func_str_exprs = [self._str_to_sympy_expr(expr) for expr in data["f_func_str_exprs"]]
+        # self.u_bnd_func_exprs = [self._str_to_sympy_expr(expr) for expr in data["u_bnd_func_exprs"]]
 
     def _str_to_sympy_expr(self, s: str):
         '''

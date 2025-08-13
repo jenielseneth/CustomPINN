@@ -14,7 +14,17 @@ from netgen.csg import *
 ngsglobals.msg_level = 1
 
 
-def check_poisson_2d_harmonic_func(model, eval_points, integration_points, quadrature_weights, domain, figure_dir):
+def check_poisson_2d_harmonic_func(model, eval_points, integration_points, quadrature_weights, domain, figure_dir, show: bool = True):
+    '''
+    Parameters:
+        model (Callable): The model to evaluate.
+        eval_points (b x 2 torch.Tensor): The points to evaluate the model at.
+        integration_points (f x 2 torch.Tensor): The points to integrate the model over.
+        quadrature_weights (f torch.Tensor): The quadrature weights for the integration points.
+        domain (tuple): The domain of the problem.
+        figure_dir (str): The directory to save the figures to.
+    
+    '''
     mesh = Mesh(unit_square.GenerateMesh(maxh=0.2))
 
     # H1-conforming finite element space
@@ -39,9 +49,9 @@ def check_poisson_2d_harmonic_func(model, eval_points, integration_points, quadr
     cf = CoefficientFunction(coeff_a*exp(-((x-mean_x)**2 / (2*sigma_x**2) + (y-mean_y)**2 / (2*sigma_y**2))))
 
     integration_values = []
-    for point in integration_points[0]:
+    for point in integration_points:
         integration_values.append(cf(mesh(*point)))
-    integration_values = torch.tensor(integration_values).expand(eval_points.shape[0], -1)
+    integration_values = torch.tensor(integration_values)
 
     f += cf * v * dx
     f.Assemble()
@@ -59,89 +69,35 @@ def check_poisson_2d_harmonic_func(model, eval_points, integration_points, quadr
 
     approx_values = evaluate_greens_function_integral(greens_function=model, evaluation_mesh=eval_points, integration_mesh_values=integration_values,
                                       integration_mesh=integration_points, quadrature_weights=quadrature_weights)
-    approx_log_values = evaluate_greens_function_integral(greens_function=lambda x, y: torch.log(torch.sqrt(((x-y)**2).sum(-1))), evaluation_mesh=eval_points, integration_mesh_values=integration_values,
+    approx_log_values = evaluate_greens_function_integral(greens_function=lambda x, s: torch.log(torch.sqrt(((x-s)**2).sum(-1))), evaluation_mesh=eval_points, integration_mesh_values=integration_values,
                                       integration_mesh=integration_points, quadrature_weights=quadrature_weights)
-    approx_psi_values = evaluate_greens_function_integral(greens_function=lambda x, y: model.psi(x, y)[..., 0], evaluation_mesh=eval_points, integration_mesh_values=integration_values,
+    approx_psi_values = evaluate_greens_function_integral(greens_function=lambda x, s: model.psi(x, s)[..., 0], evaluation_mesh=eval_points, integration_mesh_values=integration_values,
                                       integration_mesh=integration_points, quadrature_weights=quadrature_weights)
     
     int_idx, bnd_idx = get_interior_boundary_idx(domain=domain, mesh=eval_points)
+        
+    integration_values_times_weights = integration_values * quadrature_weights
 
-    log_info = "|log(|x-y|)+Ψ(x,y)| on boundary: " + str(torch.sum(torch.abs(approx_log_values[bnd_idx]+approx_psi_values[bnd_idx])).item()) 
-    print(integration_values.shape, gt_values.shape, eval_points.shape)
-    plot_multiple_points(points_list=[eval_points, eval_points, eval_points, eval_points, integration_points[0]], 
-                         values_list=[approx_psi_values, approx_log_values, approx_values, gt_values, integration_values[0]], 
-                         title_list=["h(x) ≈ ∫Ψ(x,y)f(y)dy",  "∫log(|x-y|)f(y)dy", "uᵃᵖᵖʳᵒˣ(x) ≈ ∫G(x,y)f(y)dy", "uᵍᵗ(x)", "f(x) over Ω",], 
-                         cmap_list=["viridis", "plasma", "viridis", "viridis", "viridis"],
+    log_info = "|G(x,s)| on boundary: " + str(torch.sum(torch.abs(approx_values[bnd_idx])).item()) 
+    plot_multiple_points(points_list=[eval_points, eval_points, eval_points, eval_points, integration_points, integration_points], 
+                         values_list=[approx_psi_values, approx_log_values, approx_values, gt_values, integration_values, integration_values_times_weights], 
+                         title_list=["h(x) ≈ ∫Ψ(x,s)f(s)ds",  "∫log(|x-s|)f(s)ds", "uᵃᵖᵖʳᵒˣ(x) ≈ ∫G(x,s)f(s)ds", "uᵍᵗ(x)", "f(s) over Ω", "f(s) * w(s) over Ω"], 
+                         cmap_list=["viridis", "plasma", "viridis", "viridis", "viridis", "plasma"],
                          main_title="Harmonic function h(x) Analysis",
                          axs_size=(3,2),
                          log_info=log_info, 
-                         save_dir=figure_dir, save_name="Harmonic_Function")
-
-def check_sample_solutions(model, eval_points, integration_points, quadrature_weights, domain, figure_dir):
-    mesh = Mesh(unit_square.GenerateMesh(maxh=0.2))
-
-    # H1-conforming finite element space
-    fes = H1(mesh, order=3, dirichlet=[1,2,3,4])
-
-    # define trial- and test-functions
-    u = fes.TrialFunction()
-    v = fes.TestFunction()
-
-    # the bilinear-form 
-    a = BilinearForm(fes, symmetric=True)
-    a += grad(u)*grad(v)*dx
-    a.Assemble()
-
-    f = LinearForm(fes)
-    coeff_a = random.uniform(1, 10)
-    sigma_x = random.uniform(0.01, 0.5)
-    sigma_y = random.uniform(0.01, 0.5)
-    mean_x = random.uniform(domain[0], domain[1])
-    mean_y = random.uniform(domain[2], domain[3])
-
-    cf = CoefficientFunction(coeff_a*exp(-((x-mean_x)**2 / (2*sigma_x**2) + (y-mean_y)**2 / (2*sigma_y**2))))
-
-    integration_values = []
-    for point in integration_points[0]:
-        integration_values.append(cf(mesh(*point)))
-    integration_values = torch.tensor(integration_values).expand(eval_points.shape[0], -1)
-
-    f += cf * v * dx
-    f.Assemble()
-
-    gfu = GridFunction(fes)
-    gfu.vec.data = a.mat.Inverse(fes.FreeDofs(), inverse="sparsecholesky") * f.vec
-    
-    
-    gt_values = []
-    for point in eval_points:
-        mesh_point = mesh(*point)
-        gt_values.append(gfu(mesh_point))
-
-    gt_values = torch.tensor(gt_values)
-
-    approx_values = evaluate_greens_function_integral(greens_function=model, evaluation_mesh=eval_points, integration_mesh_values=integration_values,
-                                      integration_mesh=integration_points, quadrature_weights=quadrature_weights)
-    approx_log_values = evaluate_greens_function_integral(greens_function=lambda x, y: torch.log(torch.sqrt(((x-y)**2).sum(-1))), evaluation_mesh=eval_points, integration_mesh_values=integration_values,
-                                      integration_mesh=integration_points, quadrature_weights=quadrature_weights)
-    approx_psi_values = evaluate_greens_function_integral(greens_function=lambda x, y: model.psi(x, y)[..., 0], evaluation_mesh=eval_points, integration_mesh_values=integration_values,
-                                      integration_mesh=integration_points, quadrature_weights=quadrature_weights)
-    
-    int_idx, bnd_idx = get_interior_boundary_idx(domain=domain, mesh=eval_points)
-
-    log_info = "|log(|x-y|)+Ψ(x,y)| on boundary: " + str(torch.sum(torch.abs(approx_log_values[bnd_idx]+approx_psi_values[bnd_idx])).item()) 
-
-    plot_multiple_points(points_list=[eval_points, eval_points, eval_points, eval_points], 
-                         values_list=[gt_values, approx_psi_values, approx_log_values, approx_values], 
-                         title_list=["f(x) over Ω", "h(x) ≈ ∫Ψ(x,y)f(y)dy",  "∫log(|x-y|)f(y)dy", "u(x) ≈ ∫G(x,y)f(y)dy"], 
-                         cmap_list=["viridis", "viridis", "plasma", "viridis"],
-                         main_title="Harmonic function h(x) Analysis",
-                         axs_size=(2,2),
-                         log_info=log_info, 
-                         save_dir=figure_dir, save_name="Harmonic_Function")
+                         save_dir=figure_dir, save_name="Harmonic_Function",
+                         show=show)
 
 
-def plot_fundamentals(integration_mesh_size: tuple, integration_mesh_type: mesh_type, domain: tuple, data_constants: GreensConstantsDataclass, greens_function, config: Hyperparameters, figure_dir: str):
+def plot_fundamentals(integration_mesh_size: tuple, 
+                      integration_mesh_type: mesh_type, 
+                      domain: tuple, 
+                      data_constants: GreensConstantsDataclass, 
+                      greens_function, 
+                      config: Hyperparameters, 
+                      figure_dir: str,
+                      show: bool = True):
 
     mesh = sample_points(domain, mesh_size=integration_mesh_size, mesh_type=integration_mesh_type)[None, :, :]
 
@@ -161,46 +117,57 @@ def plot_fundamentals(integration_mesh_size: tuple, integration_mesh_type: mesh_
     phi_uniform = greens_function.phi(mesh, domain_center_mesh)[0, :, 0]
 
     log_term = torch.log(torch.sqrt(((domain_center_mesh - mesh)**2).sum(-1)))[0]
-    model_term_center = greens_function(domain_center_mesh, mesh)[0] # Remove batch dimension for plotting
-    model_term_edge = greens_function(domain_edge_mesh, mesh)[0] # Remove batch dimension for plotting
+    model_term_center = greens_function(mesh, domain_center_mesh)[0] # Remove batch dimension for plotting
+    model_term_edge = greens_function(mesh, domain_edge_mesh)[0] # Remove batch dimension for plotting
 
     mesh = mesh[0]  # Remove batch dimension for plotting
 
     plot_multiple_points(points_list=[mesh, mesh, mesh, mesh, mesh, mesh], 
                         values_list=[weights_uniform, psi_uniform, phi_uniform, log_term, model_term_center, model_term_edge], 
-                        title_list=["Quadrature weights", "Ψ(x,y), x = domain center",
-                                    "Φ(x,y), x = domain center", "log(|x-y|), x = domain center", "G(x,y), x = domain center", "G(x,y) x = top right corner"], 
+                        title_list=["Quadrature weights", "Ψ(x,s), s = domain center",
+                                    "Φ(x,s), s = domain center", "log(|x-s|), s = domain center", "G(x,s), s = domain center", "G(x,s), s = top right corner"], 
                         cmap_list=["plasma", "viridis","viridis", "plasma", "viridis","viridis"],
-                        main_title="Model Decomposition Plots: G(x,y) = Φ(x,y)log(|x-y|) + Ψ(x,y)",
+                        main_title="Model Decomposition Plots: G(x,s) = Φ(x,s)log(|x-s|) + Ψ(x,s)",
                         axs_size=(3,2),
-                        save_dir=figure_dir, save_name="ModelDecomposition")
+                        save_dir=figure_dir, save_name="ModelDecomposition",
+                        show=show)
     
 
     
-def plot_greens_function_animation(mesh, greens_function, point_func, frames=40, cmap='viridis', title="", save_dir = None, save_name = None, vmax=0.4):
+def plot_greens_function_animation(mesh, 
+                                   greens_function, 
+                                   point_func, 
+                                   frames=40, 
+                                   cmap='viridis', 
+                                   title="", 
+                                   save_dir = None, 
+                                   save_name = None, 
+                                   vmax=0.4,
+                                   show: bool = True):
     '''
     Plot an animation of the approximated Green's Function.
 
     Parameters:
-        mesh (torch.Tensor)
-        greens_function (Callable)
+        mesh (1 x b x 2 size torch.Tensor) : The mesh points to evaluate the Green's Function on.
+        greens_function: (mesh, point_func) (Callable)
         point_func (Callable): Define which points to evaluate per frame.
     '''
     fig, ax = plt.subplots()
     ax.set_title(title)
     points = point_func(torch.linspace(1, frames, frames))
     sc = ax.scatter(mesh[0][:,0].detach().numpy(), mesh[0][:,1].detach().numpy(), 
-                    c=greens_function(torch.zeros_like(mesh) + points[0], mesh).detach().numpy(), 
+                    c=greens_function(mesh, torch.zeros_like(mesh) + points[0]).detach().numpy(), 
                     cmap=cmap)
     point_line = ax.scatter(*points[0], c="red")
     cbar = plt.colorbar(sc, ax=ax)  # create colorbar
     def update(frame):
         # for each frame, update the data stored on each artist.
-        sc.set_array(greens_function(points[frame][None, None].expand(mesh.shape), mesh)[0].detach().numpy())
+        sc.set_array(greens_function(mesh, torch.zeros_like(mesh) + points[frame])[0].detach().numpy())
         point_line.set_offsets(points[frame])
 
     ani = animation.FuncAnimation(fig=fig, func=update, frames=frames, interval=30)
-    plt.show()
+    if show:
+        plt.show()
     if save_dir is not None and save_name is not None:
         save_name = save_name + ".gif"
         ani.save(filename=save_dir + save_name, writer='pillow', fps=10, dpi=80)

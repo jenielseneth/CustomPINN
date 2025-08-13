@@ -1,7 +1,36 @@
 
 from functools import wraps
 import os, json
+import torch
 from collections.abc import Iterable
+
+def resize_x_and_s(x: torch.Tensor, s: torch.Tensor):
+    '''
+    Resizes x (b x 2 Tensor) and s (f x 2 Tensor) to b x f x 2 Tensors.
+
+    Parameters:
+        x (torch.Tensor): b x 2 Tensor
+        s (torch.Tensor): b x f x 2 | f x 2 Tensor
+    
+    Returns:
+        x (b x f x 2 torch.Tensor), s (b x f x 2 torch.Tensor)
+    '''
+    assert x.dim() == 2, f"x ({x.shape}) should be of size b x 2."
+
+    if s.dim() == 2:
+        x_ret = x[:,None,:].expand(-1, s.shape[0], -1)
+        s_ret = s[None, ...].expand(x.shape[0], -1, -1)
+    
+    elif s.dim() == 3:
+        assert s.shape[0] == x.shape[0], f"if s ({s.shape}) is a 3D Tensor, it must have the same shape in dim 0 as x ({x.shape})."
+        x_ret = x[:,None,:].expand(-1, s.shape[1], -1)
+        s_ret = s
+
+    assert x_ret.shape == s_ret.shape == (x.shape[0], s_ret.shape[1], 2)
+
+    return x_ret, s_ret
+
+    
 
 def find_line_with_keyword(file_path, keyword, index: int = None):
     """

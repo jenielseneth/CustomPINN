@@ -73,7 +73,7 @@ def cheb_1d_impl(eval_points: torch.Tensor, values: torch.Tensor, domain: tuple)
             eval[i] = torch.sum(val * values) / torch.sum(val)
     return eval 
 
-def cheb_2d_impl(eval_points: torch.Tensor, chebyshev_values: torch.Tensor, chebyshev_size, domain):
+def cheb_2d_impl(eval_points: torch.Tensor, chebyshev_size: tuple, chebyshev_values: torch.Tensor, domain: tuple):
     '''
     Chebyshev interpolation in 2D. (use sample_chebyshev_points_3 to sample) \n
     :param Tensor eval_points: (n*m) x 2 (n x_nodes * m y_nodes)
@@ -81,7 +81,7 @@ def cheb_2d_impl(eval_points: torch.Tensor, chebyshev_values: torch.Tensor, cheb
     :param tuple domain: (x_min, x_max, y_min, y_max)
     '''
     x_nodes, y_nodes = chebyshev_size
-    assert len(chebyshev_values) == x_nodes * y_nodes, f"Values shape {len(chebyshev_values)} does not match expected size {x_nodes * y_nodes} for chebyshev_size {chebyshev_size}."
+    assert len(chebyshev_values) == x_nodes * y_nodes, f"chebyshev_values ({len(chebyshev_values)}) does not match expected size {x_nodes * y_nodes} for chebyshev_size {chebyshev_size}."
     
     assert eval_points.device == chebyshev_values.device, f"eval_points ({eval_points.device}) and values ({chebyshev_values.device}) are not on the same device."
     print("Chebyshev 2D Interpolation implentation doesn't perform well on the domain boundary. Investigation is required.")
@@ -95,6 +95,21 @@ def cheb_2d_impl(eval_points: torch.Tensor, chebyshev_values: torch.Tensor, cheb
     for i in range(len(eval_points)):
         res2[i] = cheb_1d_impl(eval_y[i:i+1], res1[:, i], domain[2:4])
     return res2
+
+def cheb_2d_plot_debugger(eval_points: torch.Tensor, cheb_itpl_values: torch.Tensor, gt_values: torch.Tensor = None):
+    '''
+    Debugger for chebyshev 2D interpolation.
+
+    Parameters:
+        eval_points (torch.Tensor): Points at which values where interpolated.
+        cheb_itpl_values (torch.Tensor): Interpolated Chebyshev values.
+        gt_values (torch.Tensor): Optional paramter for ground truth values at evaluated points.
+    '''
+
+    plot_points(points=eval_points, values=cheb_itpl_values, cmap="viridis", title="Interpolated Chebyshev values")
+    if gt_values is not None:
+        plot_points(points=eval_points, values=gt_values, cmap="viridis", title="Ground Truth values")
+
 
 def cheb_2d_impl_convergence_rate_debugger(eval_points: torch.Tensor, evaluation_values: torch.Tensor, chebyshev_values: list[torch.Tensor], chebyshev_sizes: list[tuple], domain: tuple):
     error_rates = torch.zeros(len(chebyshev_sizes))

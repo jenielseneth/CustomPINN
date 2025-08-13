@@ -8,6 +8,7 @@ from data_generation_utils import gcd_chebyshev_mesh_size, sample_points
 from chebyshev_utils import cheb_2d_impl
 from constants_utils import Hyperparameters, mesh_type
 from plot_utils import plot_points
+from random_utils import resize_x_and_s
 from loss import fetch_quadrature_weights
 import time
 
@@ -43,30 +44,96 @@ class InferenceUtils:
         self.quadrature_weights = self.quadrature_weights.to(device)
         self.chebyshev_evaluation_mesh = self.chebyshev_evaluation_mesh.to(device)
 
+def u_laplacian_2d(greens_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+                 x: torch.Tensor, s: torch.Tensor, s_values: torch.Tensor, quadrature_weights: torch.Tensor):
+    '''
+    Calculates the 2D laplacian of u = ∫G(x,s)f(s)ds at points x with source points s. \n
+
+    Parameters:
+        greens_function (Callable): The Green's function to evaluate u with.
+        x (torch.Tensor): b x 2 Tensor of points where the laplacian is evaluated.
+        s (torch.Tensor): b x f x 2 | b x 2 Tensor of source points.
+        s_values (torch.Tensor): f Tensor f(s) of source points s 
+        quadrature_weights (torch.Tensor): f Tensor of quadrature weights for integration.
+    
+    Returns:
+        lap (torch.Tensor): b x f Tensor returning the 2D Laplacian for every G(x,s) with respect to x.
+    '''
+    x.requires_grad = True
+    s.requires_grad = True
+    u = evaluate_greens_function_integral(greens_function=greens_function, 
+                                          evaluation_mesh=x,
+                                          integration_mesh=s,
+                                          integration_mesh_values=s_values,
+                                          quadrature_weights=quadrature_weights)
+    grad_u = torch.autograd.grad(u, x, grad_outputs=torch.ones_like(u), create_graph=True)[0]
+    lap = 0.0
+    for i in range(x.shape[-1]):
+        grad2 = torch.autograd.grad(grad_u[..., i], x, grad_outputs=torch.ones_like(grad_u[..., i]), create_graph=True)[0][..., i]
+        lap += grad2
+    x.requires_grad = False
+    s.requires_grad = False
+    return lap
 
 def greens_function_laplacian_2d(greens_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-                 delta_function_center: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+                 x: torch.Tensor, s: torch.Tensor):
     '''
-    Computes the Laplacian of a 2D function using auto-diff.
+    Calculates the 2D laplacian of the Green's function at points x with source points s. \n
+
+    Parameters:
+        greens_function (Callable): The Green's function to evaluate.
+        x (torch.Tensor): b x 2 Tensor of points where the laplacian is evaluated.
+        s (torch.Tensor): f x 2 Tensor of source points.
+    
+    Returns:
+        lap (torch.Tensor): b x f Tensor returning the 2D Laplacian for every G(x,s) with respect to x.
     '''
-    def f_jacobian_x(x, y):
-        return torch.diag(torch.func.jacrev(greens_function, argnums=0)(x, y))
+    x = x[:, None, :].expand(-1, s.shape[0], -1)  # b x f x 2 Tensor
+    s = s[None, :, :].expand(x.shape[0], -1, -1)  # b x f x 2 Tensor
+    x.requires_grad = True
+    s.requires_grad = True
+    g = greens_function(x, s)
+    grad_g = torch.autograd.grad(g, x, grad_outputs=torch.ones_like(g), create_graph=True)[0]
+    lap = 0.0
+    for i in range(x.shape[-1]):
+        grad2 = torch.autograd.grad(grad_g[..., i], x, grad_outputs=torch.ones_like(grad_g[..., i]), create_graph=True)[0][..., i]
+        lap += grad2
+    x.requires_grad = False
+    s.requires_grad = False
+    return lap
 
-    def f_jacobian_y(x, y):
-        return torch.diag(torch.func.jacrev(greens_function, argnums=1)(x, y))
+def greens_function_darcy_flow_operator_2d(greens_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+                 x: torch.Tensor, s: torch.Tensor):
+    '''
+    Calculates the 2D laplacian of the Green's function at points x with source points s. \n
 
-    start = time.time()
-    hessian_xx = torch.diag(torch.func.jacfwd(f_jacobian_x, argnums=0)(delta_function_center, y))
-    hessian_yy = torch.diag(torch.func.jacfwd(f_jacobian_y, argnums=1)(delta_function_center, y))
-    hessian = torch.vstack((hessian_xx, hessian_yy)).mT
-    end = time.time()
-    print(f"Time taken for Hessian calculation: {end - start} seconds")
-    return hessian.sum(dim=-1)  # Return the sum of the diagonal elements (Laplacian)
-
+    Parameters:
+        greens_function (Callable): The Green's function to evaluate.
+        x (torch.Tensor): b x 2 Tensor of points where the laplacian is evaluated.
+        s (torch.Tensor): f x 2 Tensor of source points.
+    
+    Returns:
+        lap (torch.Tensor): b x f Tensor returning the 2D Laplacian for every G(x,s) with respect to x.
+    '''
+    x = x[:, None, :].expand(-1, s.shape[0], -1)  # b x f x 2 Tensor
+    s = s[None, :, :].expand(x.shape[0], -1, -1)  # b x f x 2 Tensor
+    x.requires_grad = True
+    s.requires_grad = True
+    g = greens_function(x, s)
+    grad_g = torch.autograd.grad(g, x, grad_outputs=torch.ones_like(g), create_graph=True)[0]
+    lap = 0.0
+    for i in range(x.shape[-1]):
+        grad2 = torch.autograd.grad(grad_g[..., i], x, grad_outputs=torch.ones_like(grad_g[..., i]), create_graph=True)[0][..., i]
+        lap += grad2
+    x.requires_grad = False
+    s.requires_grad = False
+    return lap
 
 def evaluate_greens_function_integral(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], 
-                                      evaluation_mesh: torch.Tensor, integration_mesh_values: torch.Tensor, 
-                                      integration_mesh: torch.Tensor, quadrature_weights: torch.Tensor):
+                                      evaluation_mesh: torch.Tensor, 
+                                      integration_mesh: torch.Tensor,
+                                      integration_mesh_values: torch.Tensor,
+                                      quadrature_weights: torch.Tensor):
 
     '''
     Calculates the predicted values using the learned Green's Function model. \n
@@ -74,7 +141,7 @@ def evaluate_greens_function_integral(greens_function: Callable[[Tuple[float, fl
     :param Tensor evaluation_mesh: b x 2 Tensor
     :param Tensor integration_mesh: b x f_size x 2 Tensor | f_size x 2 Tensor, where f_size is the number of points on the source term mesh.
     :param Tensor integration_mesh_values: b x f_size Tensor | f_size Tensor, where f_size is the number of points on the source term mesh.
-    :param Tensor weights: f_size Tensor of weights for the quadrature rule, if None, we assume the model learns the weights.
+    :param Tensor quadrature_weights: f_size Tensor of weights for the quadrature rule, if None, we assume the model learns the weights.
 
     :return Tensor pred: b Tensor.
     '''
@@ -87,7 +154,7 @@ def evaluate_greens_function_integral(greens_function: Callable[[Tuple[float, fl
     # integration_mesh = dataset_constants.integration_mesh
     weights = quadrature_weights
 
-    assert evaluation_mesh.dim() == 2 and evaluation_mesh.shape[1] == 2, "evaluation_mesh must be a b x 2 Tensor."
+    assert evaluation_mesh.dim() == 2 and evaluation_mesh.shape[1] == 2, f"evaluation_mesh ({evaluation_mesh.shape}) must be a b x 2 Tensor."
 
     if integration_mesh.dim() == 3:
         assert evaluation_mesh.shape[0] == integration_mesh.shape[0], f"integration_mesh ({integration_mesh.shape}) must either have the same size in dim 0 as evaluation_mesh ({evaluation_mesh.shape}), or have the size: f_size x 2 Tensor."
@@ -100,6 +167,7 @@ def evaluate_greens_function_integral(greens_function: Callable[[Tuple[float, fl
     if integration_mesh_values.dim() == 2:
         assert evaluation_mesh.shape[0] == integration_mesh_values.shape[0], f"integration_mesh_values with shape {integration_mesh_values.shape} must either have the same size in dim 0 as evaluation_mesh, or have the size: f_size Tensor."
     elif integration_mesh_values.dim() == 1:
+        assert integration_mesh_values.shape[0] == integration_mesh.shape[1], f"integration_mesh_values with shape {integration_mesh_values.shape} must have the same size in dim 0 as integration_mesh ({integration_mesh.shape})."
         integration_mesh_values = integration_mesh_values[None, :].expand(evaluation_mesh.shape[0], -1)
     else:
         raise ValueError("integration_mesh_values must be of either dimension 1 or 2.")
@@ -107,14 +175,15 @@ def evaluate_greens_function_integral(greens_function: Callable[[Tuple[float, fl
     assert quadrature_weights.dim() == 1 and quadrature_weights.shape[0] == integration_mesh_values.shape[1], f"quadrature_weights {quadrature_weights.shape}) must be a f_size Tensor."
 
     x_input = evaluation_mesh[:, None, :].expand(-1, integration_mesh.shape[1], -1)  # b x f x 2 Tensor 
-    y_input = integration_mesh # b x f x 2 Tensor
+    s_input = integration_mesh # b x f x 2 Tensor
 
-    assert x_input.shape == y_input.shape and x_input.dim() == y_input.dim() == 3
+    assert x_input.shape == s_input.shape and x_input.dim() == s_input.dim() == 3
 
-    greens_function_eval = greens_function(x_input, y_input)
+    greens_function_eval = greens_function(x_input, s_input)
     integral = greens_function_eval*integration_mesh_values  # b x f Tensor
     if weights is not None:
         integral = integral * weights[None, :]  # b x f Tensor, weights should be broadcasted
+        assert integral.shape == (evaluation_mesh.shape[0], integration_mesh_values.shape[1]), f"integral shape {integral.shape} does not match expected shape ({evaluation_mesh.shape[0]}, {integration_mesh_values.shape[1]})."
     pred = torch.sum(integral, -1)  # b Tensor, sum over the f dimension
     return pred
 

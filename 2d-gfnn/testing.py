@@ -7,6 +7,8 @@ from data_generation_utils import sample_points
 from debugging_utils import check_poisson_2d_harmonic_func, plot_greens_function_animation
 from PINN import CustomPINN_Green2D_PoissonExplicit_Fourier_Dot
 from constants_utils import Hyperparameters
+from pde_utils import greens_function_laplacian_2d
+from typing import Callable
 
 
 # domain = (-50,50,-50,50) 
@@ -26,52 +28,45 @@ domain = (0,1,0,1)
 # plot_points(eval_points, (fourier_feature(x)*evaled).sum(-1))
 
 #----------------------------
-def f(x, y):
-    return x.pow(2) + y.pow(2) + x*y + 1
+def f(x, s):
+    return (x**2).sum(-1)
 
-x = torch.ones((128,2), requires_grad=True)
 
-def f_jacobian(x, y):
-    jacobian = torch.func.jacrev(f, argnums=(0,1))(x, y)
-    return (torch.diag(jacobian[0]), torch.diag(jacobian[1]))
+x = torch.tensor([[2.0, 2.0], [1.0, 1.0]])
+s = torch.tensor([[1.0, 1.0]])
+# x = x[:, None, :].expand(-1, s.shape[0], -1)
+# s = s[None].expand(x.shape[0], -1, -1)
+y = x**2 + x 
 
-def f_jacobian_x(x, y):
-    return torch.diag(torch.func.jacrev(f, argnums=0)(x, y))
+x = torch.tensor([1.0, 2.0, 3.0], requires_grad=True)
 
-def f_jacobian_y(x, y):
-    return torch.diag(torch.func.jacrev(f, argnums=1)(x, y))
+# Expand x to a 3x3 matrix
+y = x.expand(3, 3)  # shape: (3, 3)
 
-# start = time.time()
-# hessian = torch.func.hessian(f, argnums=(0,1))(x[:, 0], x[:, 1])
-# end = time.time()
-# print(f"Time taken for Hessian calculation: {end - start} seconds")
+# Apply some function
+out = y.sum()       # sum over all elements
 
-# start = time.time()
-# jacobian = torch.func.jacrev(f, argnums=(0,1))(x[:, 0], x[:, 1])
-# end = time.time()
-# print(f"Time taken for Jacobian calculation: {end - start} seconds")
-
-start = time.time()
-# hessian = (torch.func.jacfwd(f_jacobian , argnums=(0,1))(x[:, 0], x[:, 1]))
-# hessian_xx = torch.diag(hessian[0][0])
-# hessian_yy = torch.diag(hessian[1][1])
-# final_hessian = torch.vstack((hessian_xx, hessian_yy)).mT
-#-------
-hessian_xx = torch.diag(torch.func.jacfwd(f_jacobian_x, argnums=0)(x[:, 0], x[:, 1]))
-hessian_yy = torch.diag(torch.func.jacfwd(f_jacobian_y, argnums=1)(x[:, 0], x[:, 1]))
-hessian = torch.vstack((hessian_xx, hessian_yy)).mT
-#--------
-# hessian_xx = torch.diag(torch.func.jacfwd(lambda x, y: f_jacobian(x,y)[0] , argnums=0)(x[:, 0], x[:, 1]))
-# hessian_yy = torch.diag(torch.func.jacfwd(lambda x, y: f_jacobian(x,y)[1] , argnums=1)(x[:, 0], x[:, 1]))
-# final_hessian = torch.vstack((hessian_xx, hessian_yy)).mT
-end = time.time()
-print(f"Time taken for Hessian calculation: {end - start} seconds")
+# Gradient w.r.t x
+grad = torch.autograd.grad(out, x)
+print(grad)  # tensor([3., 3., 3.])
 assert False
-jacobian = torch.vstack((torch.diag(jacobian[0]), torch.diag(jacobian[1]))).mT
-print("Jacobian:\n", jacobian)
-print(x)
-print(f(x[:, 0], x[:, 1]))
-print("Hessian:\n", hessian)
-diagonal = torch.diagonal(hessian)
-lap = torch.sum(diagonal)  
-print(lap)
+# grad = torch.autograd.grad(y, x, create_graph=True)  # dy/dx = 2x -> 4.0
+# print(grad)
+
+def greens_function_laplacian_2d(greens_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+                 x: torch.Tensor, s: torch.Tensor):
+    x.requires_grad = True
+    s.requires_grad = True
+    u = greens_function(x, s)
+    grad_u = torch.autograd.grad(u, x, grad_outputs=torch.ones_like(u), create_graph=True)[0]
+    print(grad_u)
+    lap = 0.0
+    for i in range(x.shape[-1]):
+        grad2 = torch.autograd.grad(grad_u[..., i], x, grad_outputs=torch.ones_like(grad_u[..., i]), create_graph=True)[0][..., i]
+        print("grad2:", grad2)
+        lap += grad2
+    x.requires_grad = False
+    s.requires_grad = False
+    return lap
+
+print(greens_function_laplacian_2d(f, x, s))

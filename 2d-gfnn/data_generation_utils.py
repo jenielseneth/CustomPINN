@@ -6,7 +6,7 @@ import numpy as np
 from tqdm import tqdm
 from expr_generation_utils import expr_to_func, func_input_wrapper
 from constants_utils import DataGenerationParameters
-from poisson_utils import generate_poisson_points
+from poisson_utils import generate_darcy_flow_points, generate_poisson_points
 from random_utils import log_dict_as_json
 import matplotlib.pyplot as plt
 import sympy
@@ -109,7 +109,7 @@ def sample_points(domain, mesh_size: tuple, mesh_type: typing.Literal["chebyshev
         boundary (bool): If True, samples points only on the boundary of the domain.
     
     Returns:
-        torch.Tensor: Sampled points in the domain.
+        b x 2 torch.Tensor: Sampled points in the domain.
     """
     if mesh_type == "chebyshev":
         mesh = _sample_chebyshev_points(domain, mesh_size, boundary)
@@ -128,20 +128,42 @@ def generate_points(domain, save_dir: str, file_name: str, log_file_name: str,
                     u_mesh_size: tuple, f_mesh_size: tuple, 
                     u_mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev",
                     f_mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev",
+                    darcy_flow: bool = False,
+                    diffusion_gaussian_parameters: dict = None
                     ):
     
+    """
+    Generates and saves mesh points, ground truth solution values, and right-hand side function values for a given domain,
+    supporting both Chebyshev and uniform quadrature meshes. The generated data is saved as a PyTorch file for use in
+    training or testing PINN (Physics-Informed Neural Network) models.
+    Args:
+        domain: The spatial domain over which to generate points (typically a tuple or list specifying bounds).
+        save_dir (str): Directory path where the generated data will be saved.
+        file_name (str): Name of the file to save the generated data.
+        log_file_name (str): Name of the file to save the generation parameters.
+        num_f_terms (int): Number of different Gaussian source terms to generate.
+        u_mesh_size (tuple): Size of the mesh for the solution field (Nx, Ny).
+        f_mesh_size (tuple): Size of the mesh for the right-hand side function f.
+        u_mesh_type (str): Type of mesh for the solution field, either "chebyshev", "uniform", or "random".
+        f_mesh_type (str): Type of mesh for the right-hand side function f, either "chebyshev", "uniform", or "random".
+        darcy_flow (bool): If True, generates points for the Darcy flow problem; otherwise, generates points for the Poisson equation.
+        diffusion_gaussian_parameters=None (dict): Parameters for the diffusion term if darcy_flow is True. Should contain keys 'coeff_a', 'sigma_x', 'sigma_y', 'mean_x', 'mean_y'.
+    """
+
+
     u_points = sample_points(domain=domain, mesh_size=u_mesh_size, mesh_type=u_mesh_type)
     f_points = sample_points(domain=domain, mesh_size=f_mesh_size, mesh_type=f_mesh_type)
 
-    output_dict = generate_poisson_points(n=num_f_terms, domain=domain, eval_points=u_points, integration_points=f_points)
+    if darcy_flow:
+        output_dict = generate_darcy_flow_points(n=num_f_terms, domain=domain, eval_points=u_points, integration_points=f_points, diffusion_gaussian_parameters=diffusion_gaussian_parameters)   
+    else:
+        output_dict = generate_poisson_points(n=num_f_terms, domain=domain, eval_points=u_points, integration_points=f_points)
 
     #Use vstack to concatenate mesh_points and f_mesh, as they are 2D tensors.
     mesh_points = torch.vstack([u_points for _ in range(num_f_terms)]) # size: (N, 2)
-    # u_values = torch.hstack([data['u_values'] for i in range(num_f_terms)]) # size: (N,)
     u_values = output_dict["u_values"] # size: (N,)
 
     f_mesh = torch.stack([f_points for _ in range(num_f_terms)]) # size: (num_expr, f_mesh_size, 2)
-    # f_values = torch.vstack([data['f_values'] for i in range(num_f_terms)]) # size: (num_expr, f_mesh_size)
     f_values = output_dict["f_values"] # size: (num_expr, f_mesh_size)
 
 
@@ -155,7 +177,10 @@ def generate_points(domain, save_dir: str, file_name: str, log_file_name: str,
     data = {'coordinates': mesh_points, 'u_values': u_values, 'f_values': f_values, 
             "f_meshes": f_mesh, "f_mesh_type": f_mesh_type, "u_mesh_type": u_mesh_type, 
             "u_mesh_size": u_mesh_size, "f_mesh_size": f_mesh_size,
-            "data_addresses": data_addresses, "domain": domain, "parameters": output_dict["parameters"]}
+            "data_addresses": data_addresses, "domain": domain, "parameters": output_dict["parameters"],
+            "diffusion_parameters": output_dict["diffusion_parameters"] if darcy_flow else None,
+            "diffusion_eval_point_values": output_dict["diffusion_eval_point_values"] if darcy_flow else None
+            }
     
 
     dg_params = DataGenerationParameters(domain=domain,
@@ -163,11 +188,8 @@ def generate_points(domain, save_dir: str, file_name: str, log_file_name: str,
                                          evaluation_mesh_type=u_mesh_type,
                                          integration_mesh_size=f_mesh_size,
                                          integration_mesh_type=f_mesh_type,
-                                        u_func_exprs=None,
-                                        f_func_exprs=None,
-                                        u_bnd_expr=None,
-                                        a_diffusion_expr=None,
-                                        params=output_dict["parameters"]
+                                         params=output_dict["parameters"],
+                                         diffusion_params=output_dict["diffusion_parameters"] if darcy_flow else None
                                         )
     
     log_dict_as_json(dg_params.get_dict(), save_dir + log_file_name)
@@ -175,115 +197,115 @@ def generate_points(domain, save_dir: str, file_name: str, log_file_name: str,
     print("Saved generated points into " + save_dir + ".")
     return
 
-def generate_points_2(domain, 
-                    u_exprs: list[sympy.Expr], f_exprs: list[sympy.Expr],
-                    save_dir: str, u_mesh_size: tuple, f_mesh_size: tuple, 
-                    training_data: bool= True, 
-                    u_mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev",
-                    f_mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev",
-                    a_expression: sympy.Expr = None, u_bnd_expr: sympy.Expr = None):
-    """
-    Generates and saves mesh points, ground truth solution values, and right-hand side function values for a given domain,
-    supporting both Chebyshev and uniform quadrature meshes. The generated data is saved as a PyTorch file for use in
-    training or testing PINN (Physics-Informed Neural Network) models.
-    Args:
-        domain: The spatial domain over which to generate points (typically a tuple or list specifying bounds).
-        u_gt_funcs (list of callables): List of ground truth solution functions u(x, y) to evaluate at mesh points.
-        f_funcs (list of callables): List of right-hand side functions f(x, y) to evaluate at quadrature points.
-        save_dir (str): Directory path where the generated data will be saved.
-        num_points (tuple): Number of mesh points in each spatial dimension for the solution (e.g., (Nx, Ny)).
-        f_qudrature_num_points (tuple): Number of quadrature points in each spatial dimension for f (e.g., (Nqx, Nqy)).
-        training_data (bool, optional): If True, saves data as training set; otherwise, as test set. Default is True.
-        u_chebyshev_mesh (bool, optional): If True, uses Chebyshev points for the solution mesh; otherwise, uses random points. Default is True.
-        uniform_f_quadrature (bool, optional): If True, uses a uniform mesh for f quadrature; otherwise, uses Chebyshev points. Default is False.
-        u_gt_exprs (list of str, optional): List of string expressions of the ground truth solution functions (for metadata/documentation).
-        f_func_exprs (list of str, optional): List of string expressions of the right-hand side functions (for metadata/documentation).
-        u_bnd_expr (str, optional): String expression of the boundary condition function (for metadata/documentation).
-    """
+# def generate_points_2(domain, 
+#                     u_exprs: list[sympy.Expr], f_exprs: list[sympy.Expr],
+#                     save_dir: str, u_mesh_size: tuple, f_mesh_size: tuple, 
+#                     training_data: bool= True, 
+#                     u_mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev",
+#                     f_mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev",
+#                     a_expression: sympy.Expr = None, u_bnd_expr: sympy.Expr = None):
+#     """
+#     Generates and saves mesh points, ground truth solution values, and right-hand side function values for a given domain,
+#     supporting both Chebyshev and uniform quadrature meshes. The generated data is saved as a PyTorch file for use in
+#     training or testing PINN (Physics-Informed Neural Network) models.
+#     Args:
+#         domain: The spatial domain over which to generate points (typically a tuple or list specifying bounds).
+#         u_gt_funcs (list of callables): List of ground truth solution functions u(x, y) to evaluate at mesh points.
+#         f_funcs (list of callables): List of right-hand side functions f(x, y) to evaluate at quadrature points.
+#         save_dir (str): Directory path where the generated data will be saved.
+#         num_points (tuple): Number of mesh points in each spatial dimension for the solution (e.g., (Nx, Ny)).
+#         f_qudrature_num_points (tuple): Number of quadrature points in each spatial dimension for f (e.g., (Nqx, Nqy)).
+#         training_data (bool, optional): If True, saves data as training set; otherwise, as test set. Default is True.
+#         u_chebyshev_mesh (bool, optional): If True, uses Chebyshev points for the solution mesh; otherwise, uses random points. Default is True.
+#         uniform_f_quadrature (bool, optional): If True, uses a uniform mesh for f quadrature; otherwise, uses Chebyshev points. Default is False.
+#         u_gt_exprs (list of str, optional): List of string expressions of the ground truth solution functions (for metadata/documentation).
+#         f_func_exprs (list of str, optional): List of string expressions of the right-hand side functions (for metadata/documentation).
+#         u_bnd_expr (str, optional): String expression of the boundary condition function (for metadata/documentation).
+#     """
 
 
-    #Get from the expressions the appropriate functions.
-    u_funcs = func_input_wrapper(expr_to_func(u_exprs))
-    f_funcs = func_input_wrapper(expr_to_func(f_exprs))
+#     #Get from the expressions the appropriate functions.
+#     u_funcs = func_input_wrapper(expr_to_func(u_exprs))
+#     f_funcs = func_input_wrapper(expr_to_func(f_exprs))
 
 
-    ind_data = []
+#     ind_data = []
 
-    if not os.path.exists(save_dir):
-        raise Exception("The directory " + save_dir + " doesn't exist.")
-    print("Generating points to save into dir: " + save_dir)
-    for i, (u_gt_func, f_func) in tqdm(enumerate(zip(u_funcs, f_funcs)), total=len(u_funcs)):
-        # Sample mesh points
-        if u_mesh_type == "chebyshev":
-            assert len(u_mesh_size) == 2
-        elif u_mesh_type == "uniform":
-            assert len(u_mesh_size) == 2
-        elif u_mesh_type == "random":
-            assert len(u_mesh_size) == 1 
-        else:
-            raise ValueError("Invalid u_mesh_type. Choose from 'chebyshev', 'uniform', or 'random'.")
+#     if not os.path.exists(save_dir):
+#         raise Exception("The directory " + save_dir + " doesn't exist.")
+#     print("Generating points to save into dir: " + save_dir)
+#     for i, (u_gt_func, f_func) in tqdm(enumerate(zip(u_funcs, f_funcs)), total=len(u_funcs)):
+#         # Sample mesh points
+#         if u_mesh_type == "chebyshev":
+#             assert len(u_mesh_size) == 2
+#         elif u_mesh_type == "uniform":
+#             assert len(u_mesh_size) == 2
+#         elif u_mesh_type == "random":
+#             assert len(u_mesh_size) == 1 
+#         else:
+#             raise ValueError("Invalid u_mesh_type. Choose from 'chebyshev', 'uniform', or 'random'.")
         
-        mesh_points = sample_points(domain=domain, mesh_size=u_mesh_size, mesh_type=u_mesh_type, boundary=False)
-        #Get u_values from mesh points
-        u_values = u_gt_func(mesh_points)
+#         mesh_points = sample_points(domain=domain, mesh_size=u_mesh_size, mesh_type=u_mesh_type, boundary=False)
+#         #Get u_values from mesh points
+#         u_values = u_gt_func(mesh_points)
 
-        if f_mesh_type == "chebyshev":
-            assert len(f_mesh_size) == 2
-        elif f_mesh_type == "uniform":
-            assert len(f_mesh_size) == 2
-        elif f_mesh_type == "random":
-            assert len(f_mesh_size) == 1 
+#         if f_mesh_type == "chebyshev":
+#             assert len(f_mesh_size) == 2
+#         elif f_mesh_type == "uniform":
+#             assert len(f_mesh_size) == 2
+#         elif f_mesh_type == "random":
+#             assert len(f_mesh_size) == 1 
 
-        f_mesh = sample_points(domain=domain, mesh_size=f_mesh_size, mesh_type=f_mesh_type, boundary=False)
-        f_values = f_func(f_mesh)
+#         f_mesh = sample_points(domain=domain, mesh_size=f_mesh_size, mesh_type=f_mesh_type, boundary=False)
+#         f_values = f_func(f_mesh)
 
-        #Return the interior and boundary indices of the mesh points.
+#         #Return the interior and boundary indices of the mesh points.
 
-        ind_data.append({'coordinates': mesh_points, 'u_values': u_values, 'f_values': f_values, 
-            "f_mesh": f_mesh, "f_mesh_type": f_mesh_type, "u_mesh_type": u_mesh_type, 
-            "u_gt_func_expr": str(u_exprs[i]), "f_func_str_expr": str(f_exprs[i]), "u_bnd_func_expr": str(u_bnd_expr), "domain": domain})
+#         ind_data.append({'coordinates': mesh_points, 'u_values': u_values, 'f_values': f_values, 
+#             "f_mesh": f_mesh, "f_mesh_type": f_mesh_type, "u_mesh_type": u_mesh_type, 
+#             "u_gt_func_expr": str(u_exprs[i]), "f_func_str_expr": str(f_exprs[i]), "u_bnd_func_expr": str(u_bnd_expr), "domain": domain})
 
-    #Concatenate all the data into a single dictionary.
-    #Use vstack to concatenate mesh_points and f_mesh, as they are 2D tensors.
-    mesh_points = torch.vstack([data['coordinates'] for data in ind_data]) # size: (N, 2)
-    u_values = torch.hstack([data['u_values'] for data in ind_data]) # size: (N,)
+#     #Concatenate all the data into a single dictionary.
+#     #Use vstack to concatenate mesh_points and f_mesh, as they are 2D tensors.
+#     mesh_points = torch.vstack([data['coordinates'] for data in ind_data]) # size: (N, 2)
+#     u_values = torch.hstack([data['u_values'] for data in ind_data]) # size: (N,)
 
-    f_mesh = torch.cat([data['f_mesh'][None, ...] for data in ind_data]) # size: (num_expr, f_mesh_size, 2)
-    f_values = torch.vstack([data['f_values'] for data in ind_data]) # size: (num_expr, f_mesh_size)
+#     f_mesh = torch.cat([data['f_mesh'][None, ...] for data in ind_data]) # size: (num_expr, f_mesh_size, 2)
+#     f_values = torch.vstack([data['f_values'] for data in ind_data]) # size: (num_expr, f_mesh_size)
 
-    u_exprs = [data['u_gt_func_expr'] for data in ind_data]
-    f_exprs = [data['f_func_str_expr'] for data in ind_data]
-    u_bnd_exprs = [data['u_bnd_func_expr'] for data in ind_data]
+#     u_exprs = [data['u_gt_func_expr'] for data in ind_data]
+#     f_exprs = [data['f_func_str_expr'] for data in ind_data]
+#     u_bnd_exprs = [data['u_bnd_func_expr'] for data in ind_data]
 
-    start = 0
-    data_addresses = []
-    for data in ind_data:
-        address = (start, start + len(data['coordinates']))
-        start += len(data['coordinates'])
-        data_addresses.append(address)
+#     start = 0
+#     data_addresses = []
+#     for data in ind_data:
+#         address = (start, start + len(data['coordinates']))
+#         start += len(data['coordinates'])
+#         data_addresses.append(address)
 
 
-    data = {'coordinates': mesh_points, 'u_values': u_values, 'f_values': f_values, 
-            "f_meshes": f_mesh, "f_mesh_type": f_mesh_type, "u_mesh_type": u_mesh_type, 
-            "u_mesh_size": u_mesh_size, "f_mesh_size": f_mesh_size,
-            "u_gt_func_exprs": u_exprs, "f_func_str_exprs": f_exprs, "u_bnd_func_exprs": u_bnd_exprs, 
-            "data_addresses": data_addresses, "domain": domain}
+#     data = {'coordinates': mesh_points, 'u_values': u_values, 'f_values': f_values, 
+#             "f_meshes": f_mesh, "f_mesh_type": f_mesh_type, "u_mesh_type": u_mesh_type, 
+#             "u_mesh_size": u_mesh_size, "f_mesh_size": f_mesh_size,
+#             "u_gt_func_exprs": u_exprs, "f_func_str_exprs": f_exprs, "u_bnd_func_exprs": u_bnd_exprs, 
+#             "data_addresses": data_addresses, "domain": domain}
     
 
-    dg_params = DataGenerationParameters(domain=domain,
-                                         evaluation_mesh_size=u_mesh_size,
-                                         evaluation_mesh_type=u_mesh_type,
-                                         integration_mesh_size=f_mesh_size,
-                                         integration_mesh_type=f_mesh_type,
-                                        u_func_exprs=u_exprs,
-                                        f_func_exprs=f_exprs,
-                                        u_bnd_expr=u_bnd_expr,
-                                        a_diffusion_expr=a_expression,
-                                        )
+#     dg_params = DataGenerationParameters(domain=domain,
+#                                          evaluation_mesh_size=u_mesh_size,
+#                                          evaluation_mesh_type=u_mesh_type,
+#                                          integration_mesh_size=f_mesh_size,
+#                                          integration_mesh_type=f_mesh_type,
+#                                         u_func_exprs=u_exprs,
+#                                         f_func_exprs=f_exprs,
+#                                         u_bnd_expr=u_bnd_expr,
+#                                         a_diffusion_expr=a_expression,
+#                                         )
     
-    info_file_name = "train_" + "params.json" if training_data else "test_" + "params.json"
-    log_dict_as_json(dg_params.get_dict(), save_dir + info_file_name)
+#     info_file_name = "train_" + "params.json" if training_data else "test_" + "params.json"
+#     log_dict_as_json(dg_params.get_dict(), save_dir + info_file_name)
     
-    file_suffix = "_train.pt" if training_data else "_test.pt"
-    torch.save(data, save_dir + "data"+file_suffix)
-    print("Saved generated points into " + save_dir + ".")
+#     file_suffix = "_train.pt" if training_data else "_test.pt"
+#     torch.save(data, save_dir + "data"+file_suffix)
+#     print("Saved generated points into " + save_dir + ".")

@@ -6,7 +6,10 @@ from constants_utils import mesh_type
 import sympy
 import logging
 
+logging.basicConfig(level=logging.INFO,
+    format="%(filename)s:%(lineno)d - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
 
 
 
@@ -89,11 +92,10 @@ class GreensConstantsDataclass:
     Dataclass containing constant data values to be accessed.
     '''
     domain: tuple
-    integration_mesh: torch.Tensor
     evaluation_mesh_type: mesh_type
     integration_mesh_type: mesh_type
-    evaluation_mesh_size: tuple
-    integration_mesh_size: tuple
+    evaluation_mesh_sizes: tuple
+    integration_mesh_sizes: tuple
 
     def to_device(self, device):
         self.integration_mesh = self.integration_mesh.to(device)
@@ -120,31 +122,40 @@ class GreenPINNDataset(Dataset):
 
         self.constants = GreensConstantsDataclass(
             domain=data["domain"],
-            integration_mesh=data["f_meshes"][0],
             evaluation_mesh_type=data["u_mesh_type"],
             integration_mesh_type=data["f_mesh_type"],
-            evaluation_mesh_size=data["u_mesh_size"],
-            integration_mesh_size=data["f_mesh_size"]
+            evaluation_mesh_sizes=data["u_mesh_sizes"],
+            integration_mesh_sizes=data["f_mesh_sizes"]
         )
         
-        self.length = len(data["u_values"])
-        self.data_length = len(data["f_meshes"])
-        self.evaluation_mesh = data["coordinates"]
-        self.evaluation_values = data["u_values"]
-        self.f_meshes = data["f_meshes"]
-        self.f_values = data["f_values"]
+        self.evaluation_mesh = data["coordinates"] # n_expr * (a_1 * u_mesh_size_1 + a_2 * u_mesh_size_2 + ... + a_m * u_mesh_size_m) x 2 Tensor of evaluation meshes.
+        self.evaluation_values = data["u_values"] # n_expr * (a_1 * u_mesh_size_1 + a_2 * u_mesh_size_2 + ... + a_m * u_mesh_size_m) Tensor of ground truth evaluation values.
+        self.f_meshes = data["f_meshes"] # n_expr * (f_mesh_size_1 + f_mesh_size_2 + ... + f_mesh_size_n  ) x 2 Tensor of integration meshes.
+        self.f_values = data["f_values"] # n_expr * (f_mesh_size_1 + f_mesh_size_2 + ... + f_mesh_size_n  ) Tensor of source term values.
+        self.u_length = len(self.evaluation_values) 
+        self.f_length = len(self.f_values) 
+        self.u_data_addresses = data["u_data_addresses"] # List of length n_expr (number of source terms) containing tuples (start, end) for each source term.
+        self.f_data_addresses = data["f_data_addresses"] # List of length n_expr (number of source terms) containing tuples (start, end) for each source term.
+        
+        # Calculate starting indices in relation to amount of total source terms for each new size f - i.e. calculating n_expr_1 + n_expr_2 + ... + n_expr_n   
+        self.num_f_terms = []
+        start = 0
+        for n in data["num_f_terms"]:
+            self.num_f_terms.append(start)
+            start += n
 
-        self.f_inds = [0] * self.length
-        self.sub_lengths = data["data_addresses"]
-        for i, address in enumerate(data["data_addresses"]):
-            self.f_inds[slice(*address)] = [i] * (address[1]-address[0])
+        # u_inds (u_crd_i) -> source_term_index
+        self.u_inds = [0] * len(self.evaluation_mesh) # Map evaluation points to their corresponding source term index.
+        for i, address in enumerate(self.u_data_addresses):
+            self.u_inds[slice(*address)] = [i] * (address[1]-address[0])
+        
 
         if subset_idx is not None:
-            assert subset_idx < self.length, f"sub_idx {subset_idx} is out of bounds for the dataset with length {self.length}."
+            assert subset_idx < self.u_length, f"sub_idx {subset_idx} is out of bounds for the dataset with length {self.u_length}."
             self.evaluation_mesh = self.evaluation_mesh[0:subset_idx]
             self.evaluation_values = self.evaluation_values[0:subset_idx]
             self.f_inds = self.f_inds[0:subset_idx]
-            self.length = subset_idx
+            self.u_length = subset_idx
 
 
     def _str_to_sympy_expr(self, s: str):
@@ -161,13 +172,13 @@ class GreenPINNDataset(Dataset):
         intr, _ = get_interior_boundary_idx(domain=self.constants.domain, mesh=self.evaluation_mesh)
         self.evaluation_mesh = self.evaluation_mesh[intr]
         self.evaluation_values = self.evaluation_values[intr]
-        self.length = len(self.evaluation_mesh)
+        self.u_length = len(self.evaluation_mesh)
         self.f_inds = [self.f_inds[i] for i in intr]
 
         ##Temporary solution to fix the sub_lengths for interior points.
-        sub_length = self.length // len(self.sub_lengths)
-        for i in range(len(self.sub_lengths)):
-            self.sub_lengths[i] = (i*sub_length, (i+1)*sub_length)
+        sub_length = self.u_length // len(self.u_addresses)
+        for i in range(len(self.u_addresses)):
+            self.u_addresses[i] = (i*sub_length, (i+1)*sub_length)
 
     def exclude_corners_dataset(self):
         '''
@@ -176,13 +187,13 @@ class GreenPINNDataset(Dataset):
         non_corners_idx, _ = get_corners_idx(domain=self.constants.domain, mesh=self.evaluation_mesh)
         self.evaluation_mesh = self.evaluation_mesh[non_corners_idx]
         self.evaluation_values = self.evaluation_values[non_corners_idx]
-        self.length = len(self.evaluation_mesh)
+        self.u_length = len(self.evaluation_mesh)
         self.f_inds = [self.f_inds[i] for i in non_corners_idx]
 
         ##Temporary solution to fix the sub_lengths for interior points.
-        sub_length = self.length // len(self.sub_lengths)
-        for i in range(len(self.sub_lengths)):
-            self.sub_lengths[i] = (i*sub_length, (i+1)*sub_length)
+        sub_length = self.u_length // len(self.u_addresses)
+        for i in range(len(self.u_addresses)):
+            self.u_addresses[i] = (i*sub_length, (i+1)*sub_length)
 
     def plot_evaluation_mesh(self, idx):
         '''
@@ -191,7 +202,7 @@ class GreenPINNDataset(Dataset):
         Parameters:
             idx: index to splice and plot subdataset.
         '''
-        plot_points(points=self.evaluation_mesh[slice(*self.sub_lengths[idx])])
+        plot_points(points=self.evaluation_mesh[slice(*self.u_addresses[idx])])
 
     def plot_integration_mesh(self):
         '''
@@ -199,10 +210,34 @@ class GreenPINNDataset(Dataset):
         '''
         plot_points(points=self.constants.integration_mesh)
 
+    def get_f_mesh(self, u_idx: int | list[int]) -> int:
+        '''
+        Returns the f_mesh for the given index of a u coordinate point.
+        '''
+        idx = self.u_inds[u_idx] # Get the index of the source term for the given u coordinate point.
+        if type(idx) == list:
+            f_mesh = torch.stack([self.f_meshes[slice(*self.f_data_addresses[i])] for i in idx])
+        else:
+            f_mesh = self.f_meshes[slice(*self.f_data_addresses[idx])]
+        
+        return f_mesh # (len(u_idx) x f_mesh_size x 2) Tensor of the source term mesh.
+    
+    def get_f_values(self, u_idx: int | list[int]) -> int:
+        '''
+        Returns the f_values for the given index of a u coordinate point.
+        '''
+        idx = self.u_inds[u_idx] # Get the index of the source term for the given u coordinate point.
+        if type(idx) == list:
+            f_values = torch.vstack([self.f_values[slice(*self.f_data_addresses[i])] for i in idx])
+        else:
+            f_values = self.f_values[slice(*self.f_data_addresses[idx])]
+        
+        return f_values # (len(u_idx) x f_mesh_size) Tensor of the source term mesh.
+    
 
     def __len__(self):
         # return total dataset size
-        return self.length
+        return self.u_length
     
     @dataclass
     class _ReturnClass:
@@ -216,7 +251,7 @@ class GreenPINNDataset(Dataset):
         '''
         Returns
         '''
-        ret_item = {"crd": self.evaluation_mesh[index], "u_vals": self.evaluation_values[index], "f_inds": self.f_inds[index],
-                    "f_vals": self.f_values[self.f_inds[index]], "f_mesh": self.f_meshes[self.f_inds[index]]}
+        ret_item = {"crd": self.evaluation_mesh[index], "u_vals": self.evaluation_values[index],
+                    "f_vals": self.get_f_values(index), "f_mesh": self.get_f_mesh(index)}
 
         return ret_item

@@ -25,10 +25,10 @@ class InferenceUtils:
     def __init__(self, constants: GreensConstantsDataclass, config: Hyperparameters):
         if not constants.evaluation_mesh_type == "chebyshev":
             
-            chebyshev_mesh_size = gcd_chebyshev_mesh_size(constants.integration_mesh_size)
+            chebyshev_mesh_size = gcd_chebyshev_mesh_size(constants.integration_mesh_sizes)
             self.chebyshev_evaluation_mesh = sample_points(constants.domain, chebyshev_mesh_size)
         else: 
-            self.chebyshev_evaluation_mesh = sample_points(constants.domain, constants.evaluation_mesh_size)
+            self.chebyshev_evaluation_mesh = sample_points(constants.domain, constants.evaluation_mesh_sizes)
 
         self.cheb_interior_indices, self.cheb_boundary_indices = get_interior_boundary_idx(domain=constants.domain, mesh=self.chebyshev_evaluation_mesh)
 
@@ -36,7 +36,7 @@ class InferenceUtils:
             self.quadrature_weights = None
         else:
             self.quadrature_weights = fetch_quadrature_weights(domain=constants.domain, 
-                                                           integration_mesh_size=constants.integration_mesh_size, 
+                                                           integration_mesh_size=constants.integration_mesh_sizes, 
                                                            integration_mesh_type=constants.integration_mesh_type)
             self.quadrature_weights
 
@@ -207,6 +207,6 @@ def chebyshev_inference(greens_function: Callable[[Tuple[float, float], Tuple[fl
                                         quadrature_weights=inference_utils.quadrature_weights)
     u_pred_cheb[inference_utils.cheb_boundary_indices] = boundary_condition # Boundary condition
     u_pred_eval = cheb_2d_impl(eval_points=evaluation_coordinates, chebyshev_values=u_pred_cheb, 
-                               chebyshev_size=dataset_constants.evaluation_mesh_size, domain=dataset_constants.domain)
+                               chebyshev_size=dataset_constants.evaluation_mesh_sizes, domain=dataset_constants.domain)
 
     return u_pred_eval

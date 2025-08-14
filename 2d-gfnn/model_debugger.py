@@ -65,7 +65,7 @@ def sample_problems_plotter(show: bool):
     '''
     # Sample 3 problems from the test data
     num=3
-    size = math.prod(test_data.constants.evaluation_mesh_size)
+    size = math.prod(test_data.constants.evaluation_mesh_sizes)
     sample_gt = test_data[0:num*size]
     non_corner_idx, _ = get_corners_idx(domain=domain, mesh=sample_gt["crd"])
     eval_points = sample_gt["crd"][non_corner_idx].view(num, size-4, 2)
@@ -73,7 +73,7 @@ def sample_problems_plotter(show: bool):
     f_values = sample_gt["f_vals"][non_corner_idx].view(num, size-4, -1)
     f_meshes = sample_gt["f_mesh"][non_corner_idx].view(num, size-4, -1, 2)
     quadrature_weights = fetch_quadrature_weights(domain=domain,
-                                                integration_mesh_size=test_data.constants.integration_mesh_size, 
+                                                integration_mesh_size=test_data.constants.integration_mesh_sizes, 
                                                 integration_mesh_type=test_data.constants.integration_mesh_type)
     approx_values = []
     for i in range(len(u_gt)):
@@ -112,7 +112,7 @@ def harmonic_loss_debugger():
     '''
     # Sample 3 problems from the test data
     num=3
-    size = math.prod(test_data.constants.evaluation_mesh_size)
+    size = math.prod(test_data.constants.evaluation_mesh_sizes)
     sample_gt = test_data[0:num*size]
     non_corner_idx, _ = get_corners_idx(domain=domain, mesh=sample_gt["crd"])
     eval_points = sample_gt["crd"][non_corner_idx].view(num, size-4, 2)
@@ -120,7 +120,7 @@ def harmonic_loss_debugger():
     f_values = sample_gt["f_vals"][non_corner_idx].view(num, size-4, -1)
     f_meshes = sample_gt["f_mesh"][non_corner_idx].view(num, size-4, -1, 2)
     quadrature_weights = fetch_quadrature_weights(domain=domain,
-                                                integration_mesh_size=test_data.constants.integration_mesh_size, 
+                                                integration_mesh_size=test_data.constants.integration_mesh_sizes, 
                                                 integration_mesh_type=test_data.constants.integration_mesh_type)
 
     loss = torch.tensor(0.)
@@ -137,7 +137,7 @@ def harmonic_loss_debugger():
         eval_meshes.append(eval_mesh)
 
         f_eval_point_values = cheb_2d_impl(eval_points=eval_mesh,
-                     chebyshev_size=test_data.constants.integration_mesh_size,
+                     chebyshev_size=test_data.constants.integration_mesh_sizes,
                      chebyshev_values=f_values[i] if f_values[i].dim() == 1 else f_values[i][0],
                      domain=test_data.constants.domain
                      )
@@ -180,7 +180,7 @@ def psi_harmonic_loss_debugger():
     '''
     Calculate harmonic loss of Ψ(x,s).
     '''
-    size = math.prod(test_data.constants.evaluation_mesh_size)
+    size = math.prod(test_data.constants.evaluation_mesh_sizes)
     data = test_data[0:size]
     eval_points = data["crd"]
 
@@ -300,7 +300,7 @@ def int_mesh_gfxw_anim_plotter(show: bool):
                                                                                                     integration_mesh_size=universal_integration_mesh_size, 
                                                                                                     integration_mesh_type=universal_integration_mesh_type), 
                                     point_func=delta_function_singularity, 
-                                    frames=math.prod(test_data.constants.evaluation_mesh_size), 
+                                    frames=math.prod(test_data.constants.evaluation_mesh_sizes), 
                                     title="G(x,s)w(s), s ∈ Ω",
                                     save_dir=figure_dir, save_name="GFxWIntegrationMeshAnim",
                                     show=show)
@@ -309,20 +309,42 @@ def int_mesh_gf_anim_plotter(show: bool):
     '''
     Green Function over integration mesh evaluated at each evaluation mesh point animation
     '''
-    mesh = sample_points(domain, mesh_size=test_data.constants.integration_mesh_size, mesh_type=test_data.constants.integration_mesh_type)[None]
+    mesh = sample_points(domain, mesh_size=test_data.constants.integration_mesh_sizes, mesh_type=test_data.constants.integration_mesh_type)[None]
 
     def delta_function_singularity(frames):
-        points = sample_points(domain, mesh_size=test_data.constants.evaluation_mesh_size, mesh_type=test_data.constants.evaluation_mesh_type)
+        points = sample_points(domain, mesh_size=test_data.constants.evaluation_mesh_sizes, mesh_type=test_data.constants.evaluation_mesh_type)
         return points
 
     plot_greens_function_animation(mesh=mesh, 
                                     greens_function =lambda mesh, point_func: model(point_func,mesh), 
                                     point_func=delta_function_singularity, 
-                                    frames=math.prod(test_data.constants.evaluation_mesh_size), 
+                                    frames=math.prod(test_data.constants.evaluation_mesh_sizes), 
                                     title="G(x,s), s ∈ Ω",
                                     save_dir=figure_dir, save_name="GFIntegrationMeshAnim",
                                     show=show)
+    
 
+def data_visualiser():
+    train_data = GreenPINNDataset(data_file_path=main_dir, data_file_name="data_train.pt")
+    train_sample_1 = train_data[slice(*train_data.u_data_addresses[0])]
+    train_sample_2 = train_data[slice(*train_data.u_data_addresses[2])]
+    train_sample_3 = train_data[slice(*train_data.u_data_addresses[3])]
+    plot_multiple_points(points_list=[train_sample_1["crd"], train_sample_1["f_mesh"],
+                                      train_sample_2["crd"], train_sample_2["f_mesh"],
+                                      train_sample_3["crd"], train_sample_3["f_mesh"]],
+                        values_list=[train_sample_1["u_vals"], train_sample_1["f_vals"],
+                                     train_sample_2["u_vals"], train_sample_2["f_vals"],
+                                     train_sample_3["u_vals"], train_sample_3["f_vals"],],
+                        cmap_list=["viridis", "plasma",
+                                   "viridis", "plasma",
+                                   "viridis", "plasma",],
+                        title_list=["Train Sample 1 u(x)", "Train Sample 1 f(x)",
+                                    "Train Sample 2 u(x)", "Train Sample 2 f(x)",
+                                    "Train Sample 3 u(x)",  "Train Sample 3 f(x)"],
+                    axs_size=(3,2),
+                    main_title="Train Data Visualisation",
+                    figsize=(18, 10),
+                    )
 
 if __name__ == "__main__":
     anims = {
@@ -344,10 +366,15 @@ if __name__ == "__main__":
         "psi_harm": psi_harmonic_loss_debugger
     }
 
+    data = {
+        "data_vis": data_visualiser
+    }
+
     tasks = {
         **anims,
         **plots,
-        **debuggers
+        **debuggers,
+        **data
     }
 
     parser = argparse.ArgumentParser()
@@ -358,6 +385,7 @@ if __name__ == "__main__":
     parser.add_argument('--anims', action='store_true', help='Run all animation tests.') 
     parser.add_argument('--plots', action='store_true', help='Run all plot tests.') 
     parser.add_argument('--debuggers', action='store_true', help='Run all debuggers tests.') 
+    parser.add_argument('--data', action='store_true', help='Run all data checker tests.') 
     parser.add_argument('--run', nargs='+', choices=tasks.keys(), help="Tasks to run. Choose from: " + ", ".join(tasks.keys()))
     parser.add_argument('--show', action='store_true', help='Show plots.') 
     args = parser.parse_args()
@@ -387,9 +415,9 @@ if __name__ == "__main__":
         model.load_state_dict(torch.load(model_dir + "model_best_prediction_MSELoss().pth"))
         model.eval()
 
-        universal_integration_mesh_size = test_data.constants.integration_mesh_size
+        universal_integration_mesh_size = test_data.constants.integration_mesh_sizes
         universal_integration_mesh_type: mesh_type = test_data.constants.integration_mesh_type
-        universal_evaluation_mesh_size = test_data.constants.evaluation_mesh_size
+        universal_evaluation_mesh_size = test_data.constants.evaluation_mesh_sizes
         universal_evaluation_mesh_type: mesh_type = test_data.constants.evaluation_mesh_type
         
         if args.anims:
@@ -399,6 +427,10 @@ if __name__ == "__main__":
         if args.plots:
             for func in tqdm(plots.values(), "Running all plot tests..."):
                 func(args.show)
+
+        if args.data:
+            for func in tqdm(data.values(), "Running all data tests..."):
+                func()
         
         if args.all:
             for key, func in tqdm(tasks.items(), "Running all tests..."):

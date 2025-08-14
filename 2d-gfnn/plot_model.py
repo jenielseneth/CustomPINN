@@ -41,7 +41,7 @@ model.eval()
 num_data = len(test_data.f_meshes)
 
 uniform_mesh = sample_points(test_data.constants.domain, mesh_size=(50,50), mesh_type="uniform")
-data_mesh = test_data[slice(*(test_data.sub_lengths[0]))]["crd"]
+data_mesh = test_data[slice(*(test_data.u_addresses[0]))]["crd"]
 
 u_funcs = func_input_wrapper(expr_to_func(test_data.u_gt_func_exprs))
 f_funcs = func_input_wrapper(expr_to_func(test_data.f_func_str_exprs))
@@ -72,7 +72,7 @@ for i in tqdm(range(num_data)):
 
     #Plot ground truths
     u_gt_uniform_mesh = u_func(uniform_mesh)
-    u_gt_data_mesh = test_data[slice(*(test_data.sub_lengths[i]))]["u_vals"]
+    u_gt_data_mesh = test_data[slice(*(test_data.u_addresses[i]))]["u_vals"]
 
     #Plot source term on uniform mesh
     source_term = f_func(uniform_mesh)

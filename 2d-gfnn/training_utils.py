@@ -15,6 +15,7 @@ from datetime import datetime
 from dataset_utils import GreenPINNDataset, GreensConstantsDataclass, get_interior_boundary_idx, get_interior_mesh, get_non_corners_mesh, get_corners_idx
 from constants_utils import BoundaryPointLossParams, Hyperparameters
 from random_utils import log_dict_as_json
+import logging
 
 
 class GreensTrainer:
@@ -125,19 +126,21 @@ class GreensTrainer:
         
         bar = tqdm(enumerate(self.trainloader), desc="Training", total=len(self.trainloader), leave=False, ascii=' >=')
         for _, item in bar:
-
             #Temporary solution to avoid calculating on corners
-
-            # Check if training data has excluded boundary points
+            # Check if training data has excluded boundary points and remove corner points accordingly
             if self.config.train_excl_boundary_points == False:
                 n_c, _ = get_corners_idx(domain=self.training_data.constants.domain, mesh=item["crd"])
                 evaluation_mesh = item["crd"][n_c].to(self.device)
-                integration_mesh_values = item["f_vals"][n_c].to(self.device)
                 u_gt = item["u_vals"][n_c].to(self.device)
             else:
                 u_gt = item["u_vals"].to(self.device)
-                integration_mesh_values = item["f_vals"].to(self.device)
                 evaluation_mesh = item["crd"].to(self.device)
+
+            integration_mesh_values = item["f_vals"].to(self.device)
+            integration_mesh = item["f_mesh"].to(self.device)
+            logger = logging.getLogger(__name__)
+            logger.info(f"Shape of integration mesh: {integration_mesh.shape}")
+                
 
             ### COMPUTE PREDICTION AND LOSS
             # Compute ||∫G(x,y)f(y)dy - u(x)||

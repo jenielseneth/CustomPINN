@@ -4,6 +4,9 @@ from torch.utils.data import Dataset
 from plot_utils import plot_points
 from constants_utils import mesh_type
 import sympy
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -109,7 +112,7 @@ class GreenPINNDataset(Dataset):
         self.f_meshes (Tensor): f_size x 2 Tensor of source term meshes.
         self.f_values (Tensor): f_size x 1 Tensor of source term values.
         self.f_inds (list[int]): List of indices to map evaluation points to their corresponding source term mesh and values.
-        self.sub_lengths (list[tuple]): List of tuples containing the start and end indices of each subdataset for a given source term.
+        self.sub_lengths (list[tuple]): List of tuples containing the start and end indices of each subdataset for a given source term f.
     
     '''
     def __init__(self, data_file_path, data_file_name: str, subset_idx: int = None):
@@ -143,10 +146,6 @@ class GreenPINNDataset(Dataset):
             self.f_inds = self.f_inds[0:subset_idx]
             self.length = subset_idx
 
-        ## Sympy evaluate functions
-        # self.u_gt_func_exprs = [self._str_to_sympy_expr(expr) for expr in data["u_gt_func_exprs"]]
-        # self.f_func_str_exprs = [self._str_to_sympy_expr(expr) for expr in data["f_func_str_exprs"]]
-        # self.u_bnd_func_exprs = [self._str_to_sympy_expr(expr) for expr in data["u_bnd_func_exprs"]]
 
     def _str_to_sympy_expr(self, s: str):
         '''
@@ -219,9 +218,5 @@ class GreenPINNDataset(Dataset):
         '''
         ret_item = {"crd": self.evaluation_mesh[index], "u_vals": self.evaluation_values[index], "f_inds": self.f_inds[index],
                     "f_vals": self.f_values[self.f_inds[index]], "f_mesh": self.f_meshes[self.f_inds[index]]}
-        # ret_item = self._ReturnClass(crd=self.evaluation_mesh[index],
-        #                              u_vals=self.evaluation_values[index],
-        #                              f_inds=self.f_inds[index],
-        #                              f_vals=self.f_values[self.f_inds[index]],
-        #                              f_mesh=self.f_meshes[self.f_inds[index]])
+
         return ret_item

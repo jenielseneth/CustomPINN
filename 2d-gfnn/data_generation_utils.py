@@ -1,5 +1,6 @@
 import math
 import os
+import random
 import typing
 import torch
 import numpy as np
@@ -125,7 +126,7 @@ def sample_points(domain, mesh_size: tuple, mesh_type: typing.Literal["chebyshev
 
 def generate_points(domain, save_dir: str, file_name: str, log_file_name: str,
                     num_f_terms: int, 
-                    u_mesh_size: tuple, f_mesh_size: tuple, 
+                    u_mesh_sizes: list[tuple], f_mesh_sizes: list[tuple], 
                     u_mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev",
                     f_mesh_type: typing.Literal["chebyshev", "uniform", "random"] = "chebyshev",
                     darcy_flow: bool = False,
@@ -142,54 +143,80 @@ def generate_points(domain, save_dir: str, file_name: str, log_file_name: str,
         file_name (str): Name of the file to save the generated data.
         log_file_name (str): Name of the file to save the generation parameters.
         num_f_terms (int): Number of different Gaussian source terms to generate.
-        u_mesh_size (tuple): Size of the mesh for the solution field (Nx, Ny).
-        f_mesh_size (tuple): Size of the mesh for the right-hand side function f.
+        u_mesh_sizes list[tuple]: List containing sizes of the mesh for the solution field (Nx, Ny).
+        f_mesh_sizes list[tuple]: List containing sizes of the mesh for the right-hand side function f.
         u_mesh_type (str): Type of mesh for the solution field, either "chebyshev", "uniform", or "random".
         f_mesh_type (str): Type of mesh for the right-hand side function f, either "chebyshev", "uniform", or "random".
         darcy_flow (bool): If True, generates points for the Darcy flow problem; otherwise, generates points for the Poisson equation.
         diffusion_gaussian_parameters=None (dict): Parameters for the diffusion term if darcy_flow is True. Should contain keys 'coeff_a', 'sigma_x', 'sigma_y', 'mean_x', 'mean_y'.
     """
 
-
-    u_points = sample_points(domain=domain, mesh_size=u_mesh_size, mesh_type=u_mesh_type)
-    f_points = sample_points(domain=domain, mesh_size=f_mesh_size, mesh_type=f_mesh_type)
-
-    if darcy_flow:
-        output_dict = generate_darcy_flow_points(n=num_f_terms, domain=domain, eval_points=u_points, integration_points=f_points, diffusion_gaussian_parameters=diffusion_gaussian_parameters)   
-    else:
-        output_dict = generate_poisson_points(n=num_f_terms, domain=domain, eval_points=u_points, integration_points=f_points)
-
-    #Use vstack to concatenate mesh_points and f_mesh, as they are 2D tensors.
-    mesh_points = torch.vstack([u_points for _ in range(num_f_terms)]) # size: (N, 2)
-    u_values = output_dict["u_values"] # size: (N,)
-
-    f_mesh = torch.stack([f_points for _ in range(num_f_terms)]) # size: (num_expr, f_mesh_size, 2)
-    f_values = output_dict["f_values"] # size: (num_expr, f_mesh_size)
-
-
-    start = 0
-    data_addresses = []
-    for i in range(num_f_terms):
-        address = (start, start + len(u_points))
-        start += len(u_points)
-        data_addresses.append(address)
     
+    u_data_addresses = []
+    for _, f_mesh_size in enumerate(f_mesh_sizes):
+        #Ensure the chebyshev points don't overlap:
+        overlap = False 
+        # Randomly choose mesh sizes for u_train and u_test
+        u_mesh_size = random.choice(u_mesh_sizes)
+
+
+        # Check if the mesh sizes are chebyshev, and if so, check if they overlap.
+        if u_mesh_size == f_mesh_type == "chebyshev":
+            #check size-1 for chebyshev, see data_generation_utils: _sample_chebyshev_points
+            if not math.gcd(u_mesh_size[0]-1, f_mesh_size[0]-1) == 1:
+                print(f"Warning: Chebyshev points sizes for u_mesh_size {u_mesh_size} and f mesh {f_mesh_size} in dim 0 have gcd larger than 1: {math.gcd(u_mesh_size[0]-1, f_mesh_size[0]-1)}, they may overlap.")
+                overlap = True
+            if not math.gcd(u_mesh_size[1]-1, f_mesh_size[1]-1) == 1:
+                print(f"Warning: Chebyshev points sizes for u_mesh_size {u_mesh_size} and f mesh {f_mesh_size} in dim 1 have gcd larger than 1: {math.gcd(u_mesh_size[1]-1, f_mesh_size[1]-1)}, they may overlap.")
+                overlap = True
+
+            if overlap:
+                user_input = input("The chebyshev points may overlap, do you want to continue? (y/n): ")
+                if user_input.lower() != 'y':
+                    print(f"Skipping data generation with f mesh {f_mesh_size}.")
+                    continue
+            else:
+                print("Chebyshev points do not overlap, proceeding with data generation.")
+                
+        # Generate point meshes for u and f.
+        u_points = sample_points(domain=domain, mesh_size=u_mesh_size, mesh_type=u_mesh_type)
+        f_points = sample_points(domain=domain, mesh_size=f_mesh_size, mesh_type=f_mesh_type)
+
+        if darcy_flow:
+            output_dict = generate_darcy_flow_points(n=num_f_terms, domain=domain, eval_points=u_points, integration_points=f_points, diffusion_gaussian_parameters=diffusion_gaussian_parameters)   
+        else:
+            output_dict = generate_poisson_points(n=num_f_terms, domain=domain, eval_points=u_points, integration_points=f_points)
+
+        #Use vstack to concatenate mesh_points and f_mesh, as they are 2D tensors.
+        mesh_points = torch.vstack([u_points for _ in range(num_f_terms)]) # size: (N, 2)
+        u_values = output_dict["u_values"] # size: (N,)
+
+        f_mesh = torch.stack([f_points for _ in range(num_f_terms)]) # size: (num_expr, f_mesh_size, 2)
+        f_values = output_dict["f_values"] # size: (num_expr, f_mesh_size)
+
+
+        start = 0
+        for _ in range(num_f_terms):
+            address = (start, start + len(u_points))
+            start += len(u_points)
+            u_data_addresses.append(address)
+        
     data = {'coordinates': mesh_points, 'u_values': u_values, 'f_values': f_values, 
             "f_meshes": f_mesh, "f_mesh_type": f_mesh_type, "u_mesh_type": u_mesh_type, 
-            "u_mesh_size": u_mesh_size, "f_mesh_size": f_mesh_size,
-            "data_addresses": data_addresses, "domain": domain, "parameters": output_dict["parameters"],
+            "u_mesh_sizes": u_mesh_sizes, "f_mesh_sizes": f_mesh_sizes,
+            "u_data_addresses": u_data_addresses, "domain": domain, "parameters": output_dict["parameters"],
             "diffusion_parameters": output_dict["diffusion_parameters"] if darcy_flow else None,
             "diffusion_eval_point_values": output_dict["diffusion_eval_point_values"] if darcy_flow else None
             }
     
 
     dg_params = DataGenerationParameters(domain=domain,
-                                         evaluation_mesh_size=u_mesh_size,
-                                         evaluation_mesh_type=u_mesh_type,
-                                         integration_mesh_size=f_mesh_size,
-                                         integration_mesh_type=f_mesh_type,
-                                         params=output_dict["parameters"],
-                                         diffusion_params=output_dict["diffusion_parameters"] if darcy_flow else None
+                                        evaluation_mesh_size=u_mesh_sizes,
+                                        evaluation_mesh_type=u_mesh_type,
+                                        integration_mesh_size=f_mesh_sizes,
+                                        integration_mesh_type=f_mesh_type,
+                                        params=output_dict["parameters"],
+                                        diffusion_params=output_dict["diffusion_parameters"] if darcy_flow else None
                                         )
     
     log_dict_as_json(dg_params.get_dict(), save_dir + log_file_name)

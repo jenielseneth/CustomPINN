@@ -57,29 +57,6 @@ if __name__ == "__main__":
             u_train_mesh_size = random.choice(u_train_mesh_sizes)
             u_test_mesh_size = random.choice(u_test_mesh_sizes)
 
-            if u_test_mesh_type == f_mesh_type == "chebyshev":
-                #check size-1 for chebyshev, see data_generation_utils: _sample_chebyshev_points
-                if not math.gcd(u_train_mesh_size[0]-1, f_mesh_size[0]-1) == 1:
-                    print(f"Warning: Chebyshev points sizes for u_train {u_train_mesh_size} and f mesh {f_mesh_size} in dim 0 have gcd larger than 1: {math.gcd(u_train_mesh_size[0]-1, f_mesh_size[0]-1)}, they may overlap.")
-                    overlap = True
-                if not math.gcd(u_train_mesh_size[1]-1, f_mesh_size[1]-1) == 1:
-                    print(f"Warning: Chebyshev points sizes for u_train {u_train_mesh_size} and f mesh {f_mesh_size} in dim 1 have gcd larger than 1: {math.gcd(u_train_mesh_size[1]-1, f_mesh_size[1]-1)}, they may overlap.")
-                    overlap = True
-                if not math.gcd(u_test_mesh_size[0]-1, f_mesh_size[0]-1) == 1:
-                    print(f"Warning: Chebyshev points sizes for u_train {u_train_mesh_size} and f mesh {f_mesh_size} in dim 0 have gcd larger than 1: {math.gcd(u_test_mesh_size[0]-1, f_mesh_size[0]-1)}, they may overlap.")
-                    overlap = True
-                if not math.gcd(u_test_mesh_size[1]-1, f_mesh_size[1]-1) == 1:
-                    print(f"Warning: Chebyshev points sizes for u_train {u_train_mesh_size} and f mesh {f_mesh_size} in dim 1 have gcd larger than 1: {math.gcd(u_test_mesh_size[1]-1, f_mesh_size[1]-1)}, they may overlap.")
-                    overlap = True
-                if overlap:
-                    user_input = input("The chebyshev points may overlap, do you want to continue? (y/n): ")
-                    if user_input.lower() != 'y':
-                        print(f"Skipping data generation with f mesh {f_mesh_size}.")
-                        continue
-                else:
-                    print("Chebyshev points do not overlap, proceeding with data generation.")
-            
-
             dir = f"./res/{timestamp}{i}/data/" #Main directory
 
             if not os.path.exists(dir):

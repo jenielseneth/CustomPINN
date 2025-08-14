@@ -277,9 +277,9 @@ class CustomPINN_Green2D_PoissonExplicit(nn.Module):
     def forward(self, x, s, area = None):
         '''
         x is the input coordinate for u(x) = int (G(x,y) * f(y) dy). \n
-        y is the parameter along which we integrate. \n
+        s is the parameter along which we integrate. \n
         :param Tensor x: b x f x 2 Tensor; b - batch size of coordinates, f - size of f_mesh, 2 - 2D
-        :param Tensor y: b x f x 2 Tensor; b - batch size of coordinates, f - size of f_mesh, 2 - 2D
+        :param Tensor s: b x f x 2 Tensor; b - batch size of coordinates, f - size of f_mesh, 2 - 2D
         :return: b x f Tensor; b - batch size of coordinates, f - size of f_mesh
         :rtype: Tensor
         '''

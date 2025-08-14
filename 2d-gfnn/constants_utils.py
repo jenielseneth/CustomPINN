@@ -100,9 +100,9 @@ class DataGenerationParameters:
     Defines the parameters used in data generation. Purely for generating a json file for overview.
     '''
     domain: tuple
-    evaluation_mesh_size: tuple
+    evaluation_mesh_size: tuple | list[tuple]
     evaluation_mesh_type: mesh_type
-    integration_mesh_size: tuple
+    integration_mesh_size: tuple | list[tuple]
     integration_mesh_type: mesh_type
     params: dict
     diffusion_params: dict

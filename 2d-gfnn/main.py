@@ -11,9 +11,16 @@ from PINN import CustomPINN_Green2D, CustomPINN_Green2D_Fourier_Dot, CustomPINN_
 from loss import MAPELoss
 from random_utils import retrieve_dict_from_json
 from tqdm import tqdm
+import logging
 
 
 if __name__ == "__main__":
+
+    logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    logger = logging.getLogger(__name__)
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--rd', type=str, required=True, help='Which res folder to use.')

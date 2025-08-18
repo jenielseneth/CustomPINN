@@ -277,7 +277,10 @@ def multiple_f_meshes_generate_points(domain, save_dir: str, file_name: str, log
     total_f_data_addresses = []
     u_address_start = 0
     f_address_start = 0
-    source_term_size_list = []
+    u_to_f_mesh_idx = []
+    u_point_to_expr_idx = []
+    mesh_size_addresses = []
+    mesh_size_address_start = 0
 
     total_f_data_addresses = []
     total_u_mesh_points = []
@@ -286,7 +289,7 @@ def multiple_f_meshes_generate_points(domain, save_dir: str, file_name: str, log
     total_f_mesh_values = []
     u_mesh_sizes_list = []
 
-    for n_f, f_mesh_size in tqdm(zip(num_f_terms, f_mesh_sizes), desc="Generating points for different f_mesh_sizes", ascii="░▒█", total=len(f_mesh_sizes)):
+    for i, (n_f, f_mesh_size) in tqdm(enumerate(zip(num_f_terms, f_mesh_sizes)), desc="Generating points for different f_mesh_sizes", ascii="░▒█", total=len(f_mesh_sizes)):
         #Ensure the chebyshev points don't overlap:
         overlap = False 
         # Randomly choose mesh sizes for u_train and u_test
@@ -324,14 +327,15 @@ def multiple_f_meshes_generate_points(domain, save_dir: str, file_name: str, log
         mesh_points = torch.vstack([u_points for _ in range(n_f)]) # size: (num_expr * u_mesh_size, 2)
         u_values = output_dict["u_values"] # size: (N,)
 
-        f_mesh = torch.vstack([f_points for _ in range(n_f)]) # size: (num_expr * f_mesh_size , 2)
+        # f_mesh = torch.vstack([f_points for _ in range(n_f)]) # size: (num_expr * f_mesh_size , 2)
+        f_mesh = f_points # size: (f_mesh_size, 2)
         f_values = output_dict["f_values"] # size: (num_expr * f_mesh_size, )
 
         u_data_addresses = []
         f_data_addresses = []
         # for each i, u_data_addresses[i] corresponds to the u_points for the i-th f_mesh_size.
         # for each i, f_data_addresses[i] corresponds to the f_points for the i-th f_mesh_size.
-        for _ in range(n_f):
+        for j in range(n_f):
             u_address = (u_address_start, u_address_start + len(u_points))
             u_address_start += len(u_points)
             u_data_addresses.append(u_address)
@@ -339,7 +343,14 @@ def multiple_f_meshes_generate_points(domain, save_dir: str, file_name: str, log
             f_address = (f_address_start, f_address_start + len(f_points))
             f_address_start += len(f_points)
             f_data_addresses.append(f_address)
+
+            # For each set of u points corresponding to a source term expression of a certain f_mesh size, 
+                # we need to know which f values/source term expression it corresponds to.
+            u_point_to_expr_idx += [j] * len(u_points)
         #End of for loop over num_f_terms
+
+        # For each u point, we need to know which f mesh it corresponds to.
+        u_to_f_mesh_idx += [i] * len(mesh_points)
 
         total_u_data_addresses += u_data_addresses
         total_f_data_addresses += f_data_addresses
@@ -348,23 +359,40 @@ def multiple_f_meshes_generate_points(domain, save_dir: str, file_name: str, log
         total_u_mesh_values.append(u_values)
         total_f_mesh_points.append(f_mesh)
         total_f_mesh_values.append(f_values)
+        mesh_size_addresses.append((mesh_size_address_start, mesh_size_address_start + len(mesh_points)))
+        mesh_size_address_start += len(mesh_points)
 
     total_u_mesh_points = torch.cat(total_u_mesh_points, 0) # size: (len(f_mesh_sizes) * num_expr * u_mesh_size, 2)
     total_u_mesh_values = torch.cat(total_u_mesh_values, 0) # size: (len(f_mesh_sizes) * num_expr * u_mesh_size, )
-    total_f_mesh_points = torch.cat(total_f_mesh_points, 0) # size: (len(f_mesh_sizes) * num_expr * f_mesh_size, 2)
-    total_f_mesh_values = torch.cat(total_f_mesh_values, 0) # size: (len(f_mesh_sizes) * num_expr * f_mesh_size, )
+    # total_f_mesh_points = torch.cat(total_f_mesh_points, 0) # size: (len(f_mesh_sizes) * num_expr * f_mesh_size, 2)
+    # total_f_mesh_values = torch.cat(total_f_mesh_values, 0) # size: (len(f_mesh_sizes) * num_expr * f_mesh_size, )
 
-    logger.info(f"Size of total_u_mesh_points: {total_u_mesh_points.shape}, size of total_u_mesh_values: {total_u_mesh_values.shape}, size of total_f_mesh_points: {total_f_mesh_points.shape}, size of total_f_mesh_values: {total_f_mesh_values.shape}")
-    
+
     data = {'coordinates': total_u_mesh_points, 'u_values': total_u_mesh_values, 'f_values': total_f_mesh_values, 
             "f_meshes": total_f_mesh_points, "f_mesh_type": f_mesh_type, "u_mesh_type": u_mesh_type, 
             "u_mesh_sizes": u_mesh_sizes_list, "f_mesh_sizes": f_mesh_sizes,
-            "num_f_terms": num_f_terms,
+            "num_f_terms": num_f_terms, "mesh_size_addresses": mesh_size_addresses,
+            "u_point_to_expr_idx": u_point_to_expr_idx, "u_to_f_mesh_idx": u_to_f_mesh_idx,
             "u_data_addresses": total_u_data_addresses, "f_data_addresses": total_f_data_addresses, 
             "domain": domain, "parameters": output_dict["parameters"],
             "diffusion_parameters": output_dict["diffusion_parameters"] if darcy_flow else None,
             "diffusion_eval_point_values": output_dict["diffusion_eval_point_values"] if darcy_flow else None
             }
+
+    # Debugger:
+    for key in data.keys():
+        if isinstance(data[key], torch.Tensor):
+            logger.info(f"{key} shape: {data[key].shape}")
+        elif isinstance(data[key], list):
+            logger.info(f"{key} length: {len(data[key])}")
+            if isinstance(data[key][0], torch.Tensor):
+                logger.info(f"{key} first element shape: {data[key][0].shape}")
+        elif isinstance(data[key], tuple):
+            logger.info(f"{key} length: {len(data[key])}")
+        elif isinstance(data[key], dict):
+            logger.info(f"{key} keys: {list(data[key].keys())}")
+        else:
+            logger.info(f"{key} type: {type(data[key])}")
 
     dg_params = DataGenerationParameters(domain=domain,
                                         evaluation_mesh_size=u_mesh_sizes,

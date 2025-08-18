@@ -60,7 +60,7 @@ for i in tqdm(range(num_data)):
     u_pred_data_mesh = evaluate_greens_function_integral(greens_function=model, 
                                         evaluation_mesh=data_mesh,
                                         integration_mesh_values=f_values, 
-                                        integration_mesh=test_data.constants.integration_mesh, 
+                                        integration_meshes=test_data.constants.integration_mesh, 
                                         quadrature_weights=training_utils.quadrature_weights)
     
     u_pred_uniform = chebyshev_inference(greens_function=model, evaluation_coordinates=uniform_mesh,

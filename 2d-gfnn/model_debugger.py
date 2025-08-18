@@ -78,7 +78,7 @@ def sample_problems_plotter(show: bool):
     approx_values = []
     for i in range(len(u_gt)):
         approx_values.append(evaluate_greens_function_integral(greens_function=model, evaluation_mesh=eval_points[i], integration_mesh_values=f_values[i],
-                                      integration_mesh=f_meshes[i], quadrature_weights=quadrature_weights))
+                                      integration_meshes=f_meshes[i], quadrature_weights=quadrature_weights))
     mse = torch.nn.functional.mse_loss
     plot_multiple_points(points_list=[eval_points[0], eval_points[0], eval_points[0],  
                                       eval_points[1], eval_points[1], eval_points[1], 
@@ -409,7 +409,6 @@ if __name__ == "__main__":
         config = Hyperparameters(**config_dict)
         test_data = GreenPINNDataset(data_file_path=data_dir, data_file_name="data_test.pt")
         domain = test_data.constants.domain
-        training_utils = InferenceUtils(constants=test_data.constants, config=config)
 
         model = config.model_cls(**config.model_params)
         model.load_state_dict(torch.load(model_dir + "model_best_prediction_MSELoss().pth"))

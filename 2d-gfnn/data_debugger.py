@@ -35,7 +35,6 @@ def data_visualiser():
                     figsize=(18, 10),
                     )
 
-
     test_data = GreenPINNDataset(data_file_path=data_dir, data_file_name="data_test.pt")
     num_f_terms = test_data.num_f_terms
     sample_1 = test_data[slice(*test_data.u_data_addresses[num_f_terms[2]])]

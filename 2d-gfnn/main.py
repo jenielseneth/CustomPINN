@@ -15,11 +15,9 @@ import logging
 
 
 if __name__ == "__main__":
-
-    logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    # Set up logging
+    logging.basicConfig(level=logging.INFO,
+    format="%(filename)s:%(lineno)d - %(levelname)s - %(message)s")
     logger = logging.getLogger(__name__)
 
     parser = argparse.ArgumentParser()
@@ -35,17 +33,17 @@ if __name__ == "__main__":
         test_batch_size=128,
         train_excl_boundary_points=False,
         test_excl_boundary_points=False,
-        train_subset_idx=None,
+        train_subset_idx=10000,
         test_subset_idx=4000,
         model_cls=CustomPINN_Green2D_PoissonExplicit,
         model_params={"hidden_size":16, "num_layers":5},
         optimizer_cls=torch.optim.Adam,
-        optimizer_params={"lr":1e-3, "weight_decay":1e-4},
+        optimizer_params={"lr":1e-3, "weight_decay":0},
         scheduler_cls= None,
         scheduler_params={"step_size":0, "gamma":0.5},
         l_weights=False,
         boundary_loss=True,
-        harmonic_psi_loss=True,
+        harmonic_psi_loss=False,
         num_epochs=40,
         num_runs=1,
         harmonic_psi_loss_factor=0.01,

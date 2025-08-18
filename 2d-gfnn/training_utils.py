@@ -12,11 +12,17 @@ from data_generation_utils import sample_points, gcd_chebyshev_mesh_size
 from plot_utils import plot_points
 from pde_utils import InferenceUtils, evaluate_greens_function_integral, greens_function_laplacian_2d, u_laplacian_2d
 from datetime import datetime
-from dataset_utils import GreenPINNDataset, GreensConstantsDataclass, get_interior_boundary_idx, get_interior_mesh, get_non_corners_mesh, get_corners_idx
+from dataset_utils import (GreenPINNDataset, 
+                           get_non_corners_mesh, 
+                           get_corners_idx, 
+                           greens_pinn_dataset_collate_fn, 
+                           DatasetReturnClass, )
 from constants_utils import BoundaryPointLossParams, Hyperparameters
 from random_utils import log_dict_as_json
 import logging
 
+
+logger = logging.getLogger(__name__)
 
 class GreensTrainer:
     def __init__(self, 
@@ -70,6 +76,7 @@ class GreensTrainer:
         self.pretrained_model_config = pretrained_model_config
         self.pretrained_model_dir = pretrained_model_dir
         self.config = config
+        self.device = self.config.device
 
         if self.pretrained_model_config is not None:
             assert self.pretrained_model_dir is not None, "If pretrained_model_config is given, pretrained_model_dir must also be given."
@@ -91,9 +98,17 @@ class GreensTrainer:
         self.boundary_loss_fn = boundary_loss_fn if boundary_loss_fn is not None else self.train_loss_fn
         self.test_loss_fn = test_loss_fn if isinstance(test_loss_fn, list) else [test_loss_fn]
         self.training_data = training_data
+        self.train_f_meshes = [mesh.to(self.device) for mesh in self.training_data.f_meshes]
         self.test_data = test_data
-        self.trainloader = DataLoader(self.training_data, batch_size=self.config.training_batch_size, shuffle=True)
-        self.testloader = DataLoader(self.test_data, batch_size=self.config.test_batch_size, shuffle=True)
+        self.test_f_meshes = [mesh.to(self.device) for mesh in self.test_data.f_meshes]
+        self.trainloader = DataLoader(self.training_data, 
+                                      batch_size=self.config.training_batch_size, 
+                                      shuffle=True,
+                                      collate_fn=greens_pinn_dataset_collate_fn)
+        self.testloader  = DataLoader(self.test_data, 
+                                     batch_size=self.config.test_batch_size, 
+                                     shuffle=True,
+                                      collate_fn=greens_pinn_dataset_collate_fn)
         self.inference_utils = InferenceUtils(constants=self.training_data.constants, config=config)
         self.boundary_loss = config.boundary_loss
 
@@ -106,7 +121,6 @@ class GreensTrainer:
             self.bnd_points = get_non_corners_mesh(domain=self.training_data.constants.domain, mesh=self.bnd_points).to(config.device) # b x 2 Tensor
         
         self.debug_mode = debug_mode
-        self.device = self.config.device
 
         # Establish device
         self.inference_utils.to_device(self.device)
@@ -124,32 +138,39 @@ class GreensTrainer:
         # total_harmonic_u_loss = 0
         total_boundary_loss = 0
         
-        bar = tqdm(enumerate(self.trainloader), desc="Training", total=len(self.trainloader), leave=False, ascii=' >=')
-        for _, item in bar:
+        for item in tqdm(self.trainloader, desc="Training", total=len(self.trainloader), leave=False, ascii=' >='):
             #Temporary solution to avoid calculating on corners
             # Check if training data has excluded boundary points and remove corner points accordingly
             if self.config.train_excl_boundary_points == False:
-                n_c, _ = get_corners_idx(domain=self.training_data.constants.domain, mesh=item["crd"])
-                evaluation_mesh = item["crd"][n_c].to(self.device)
-                u_gt = item["u_vals"][n_c].to(self.device)
+                n_c, _ = get_corners_idx(domain=self.training_data.constants.domain, mesh=item.crd)
+                evaluation_mesh = item.crd[n_c].to(self.device)
+                u_gt = item.u_vals[n_c].to(self.device)
             else:
-                u_gt = item["u_vals"].to(self.device)
-                evaluation_mesh = item["crd"].to(self.device)
+                evaluation_mesh = item.crd.to(self.device)
+                u_gt = item.u_vals.to(self.device)
 
-            integration_mesh_values = item["f_vals"].to(self.device)
-            integration_mesh = item["f_mesh"].to(self.device)
-            logger = logging.getLogger(__name__)
-            logger.info(f"Shape of integration mesh: {integration_mesh.shape}")
-                
+
+            integration_meshes = [self.train_f_meshes[idx] for idx in item.f_mesh_idx] # b x (f_1, f_2, ..., f_n) x 2 Tensor
+            integration_mesh_values = [self.training_data.f_values[item.f_mesh_idx[i]][idx].to(self.device) for i, idx in enumerate(item.f_vals_idx)]
 
             ### COMPUTE PREDICTION AND LOSS
             # Compute ||∫G(x,y)f(y)dy - u(x)||
             u_prediction = evaluate_greens_function_integral(greens_function=model, integration_mesh_values=integration_mesh_values, 
-                                                             evaluation_mesh=evaluation_mesh, integration_mesh=self.training_data.constants.integration_mesh, 
+                                                             evaluation_mesh=evaluation_mesh, integration_meshes=integration_meshes, 
+                                                             u_to_f_mesh_idx=item.f_mesh_idx,
                                                              quadrature_weights=self.inference_utils.quadrature_weights)
+            
+            # assert NotImplementedError("The current implementation does not support multiple integration meshes. Implement evaluate_greens_function_integral.")
             prediction_loss = self.config.prediction_loss_factor * self.train_loss_fn(u_prediction, u_gt)
             loss = prediction_loss
-            
+            # Calculate boundary loss ||G(x,y) - boundary conditions||
+            if self.boundary_loss == True:
+                greens_function_boundary_eval = model(self.bnd_points[:, None, :].expand(-1, integration_meshes[-1].shape[0] ,-1), 
+                                                      integration_meshes[-1][None, ...].expand(self.bnd_points.shape[0], -1, -1))
+                boundary_loss = self.boundary_loss_fn(greens_function_boundary_eval, torch.zeros_like(greens_function_boundary_eval))
+                loss += self.config.boundary_loss_factor * boundary_loss
+            else: 
+                boundary_loss = torch.tensor(0.0, device=self.device)
 
             # Temporary solution to calculate the Laplacian of Psi(x, y) for Poisson equation.
             if self.config.harmonic_psi_loss:
@@ -205,20 +226,12 @@ class GreensTrainer:
             # else:
             #     harmonic_u_loss = torch.tensor(0.0, device=self.device)
 
-            # Calculate boundary loss ||G(x,y) - boundary conditions||
-            if self.boundary_loss == True:
-                greens_function_boundary_eval = model(self.bnd_points[:, None, :].expand(-1, self.training_data.constants.integration_mesh.shape[0] ,-1), 
-                                                      self.training_data.constants.integration_mesh[None, ...].expand(self.bnd_points.shape[0], -1, -1))
-                boundary_loss = self.boundary_loss_fn(greens_function_boundary_eval, torch.zeros_like(greens_function_boundary_eval))
-                loss += self.config.boundary_loss_factor * boundary_loss
-            else: 
-                boundary_loss = torch.tensor(0.0, device=self.device)
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            batch_size = len(item["crd"])
+            batch_size = len(item.crd)
             current_num += batch_size
             tqdm.write(f"\rAvg Train Loss Per Sample: {loss / batch_size :>9f} | Predict Loss: {prediction_loss :>9f} | Harmonic Psi Loss: {harmonic_psi_loss :>9f} | Boundary Loss: {boundary_loss :>9f} |   [{current_num:>5d}/{size:>5d}] \n", end="")
             total_loss += loss
@@ -241,46 +254,55 @@ class GreensTrainer:
 
             # Check if test data has excluded boundary points
             if not self.config.test_excl_boundary_points:
-                n_c, _ = get_corners_idx(domain=self.test_data.constants.domain, mesh=item["crd"])
-                eval_mesh = item["crd"][n_c].to(self.device)
-                integration_mesh_values = item["f_vals"][n_c].to(self.device)
-                u_gt = item["u_vals"][n_c].to(self.device)
+                n_c, _ = get_corners_idx(domain=self.test_data.constants.domain, mesh=item.crd)
+                evaluation_mesh = item.crd[n_c].to(self.device)
+                u_gt = item.u_vals[n_c].to(self.device)
             else:
-                eval_mesh = item["crd"].to(self.device)
-                integration_mesh_values = item["f_vals"].to(self.device)
-                u_gt = item["u_vals"].to(self.device)
-            
-            # Define the psi function to be used for the harmonic Psi loss.
-            def psi(x, s):
-                # Expand x and s to match the expected input shape
-                if x.dim() == 2:
-                    assert s.dim() == 2, "s must be a 2D tensor if x is 2D."
-                    x = x[:, None, :].expand(-1, s.shape[0], -1)  # b x f x 2 Tensor
-                    s = s[None, :, :].expand(x.shape[0], -1, -1)  # b x f x 2 Tensor
+                evaluation_mesh = item.crd.to(self.device)
+                u_gt = item.u_vals.to(self.device)
 
-                return model.psi(x, s)[...,0]
-            
-            # Harmonic loss 
-            harmonic_psi_term = greens_function_laplacian_2d(
-                greens_function=psi,
-                x=eval_mesh[0:4], 
-                s=self.training_data.constants.integration_mesh
-                )
-            harmonic_psi_loss = torch.tensor([loss_fn(harmonic_psi_term, torch.zeros_like(harmonic_psi_term)) for loss_fn in self.test_loss_fn], device=self.device)
+            integration_meshes = [self.test_f_meshes[idx] for idx in item.f_mesh_idx]
+            integration_mesh_values = [self.test_data.f_values[item.f_mesh_idx[i]][idx].to(self.device) for i, idx in enumerate(item.f_vals_idx)]
+        
+            if self.config.harmonic_psi_loss:
+                assert NotImplementedError ("The current implementation does not support multiple integration meshes. Implement evaluate_greens_function_integral.")
+            # Define the psi function to be used for the harmonic Psi loss.
+                def psi(x, s):
+                    # Expand x and s to match the expected input shape
+                    if x.dim() == 2:
+                        assert s.dim() == 2, "s must be a 2D tensor if x is 2D."
+                        x = x[:, None, :].expand(-1, s.shape[0], -1)  # b x f x 2 Tensor
+                        s = s[None, :, :].expand(x.shape[0], -1, -1)  # b x f x 2 Tensor
+
+                    return model.psi(x, s)[...,0]
+                
+                # Harmonic loss 
+                harmonic_psi_term = greens_function_laplacian_2d(
+                    greens_function=psi,
+                    x=evaluation_mesh[0:4], 
+                    s=self.training_data.constants.integration_mesh
+                    )
+                harmonic_psi_loss = torch.tensor([loss_fn(harmonic_psi_term, torch.zeros_like(harmonic_psi_term)) for loss_fn in self.test_loss_fn], device=self.device)
+            else:
+                harmonic_psi_loss = torch.tensor([0.0 for _ in self.test_loss_fn], device=self.device)
             test_loss += self.config.harmonic_psi_loss_factor * harmonic_psi_loss
 
             with torch.no_grad():
                 # Prediction loss
                 u_prediction = evaluate_greens_function_integral(greens_function=model, integration_mesh_values=integration_mesh_values, 
-                                                                    evaluation_mesh=eval_mesh, integration_mesh=self.test_data.constants.integration_mesh,
-                                                                    quadrature_weights=self.inference_utils.quadrature_weights)
+                                                             evaluation_mesh=evaluation_mesh, integration_meshes=integration_meshes, 
+                                                             u_to_f_mesh_idx=item.f_mesh_idx,
+                                                             quadrature_weights=self.inference_utils.quadrature_weights)
                 prediction_loss = torch.tensor([loss_fn(u_prediction, u_gt) for loss_fn in self.test_loss_fn], device=self.device)
                 test_loss += self.config.prediction_loss_factor * prediction_loss
-
+                
+                if self.boundary_loss == True:
                 # Boundary loss ||G(x,y) - boundary conditions||
-                greens_function_boundary_eval = model(self.bnd_points[:, None, :].expand(-1, self.training_data.constants.integration_mesh.shape[0] ,-1), 
-                                                    self.training_data.constants.integration_mesh[None, ...].expand(self.bnd_points.shape[0], -1, -1))
-                boundary_loss = torch.tensor([loss_fn(greens_function_boundary_eval, torch.zeros_like(greens_function_boundary_eval)) for loss_fn in self.test_loss_fn], device=self.device)
+                    greens_function_boundary_eval = model(self.bnd_points[:, None, :].expand(-1, integration_meshes[-1].shape[0] ,-1), 
+                                                        integration_meshes[-1][None, ...].expand(self.bnd_points.shape[0], -1, -1))
+                    boundary_loss = torch.tensor([loss_fn(greens_function_boundary_eval, torch.zeros_like(greens_function_boundary_eval)) for loss_fn in self.test_loss_fn], device=self.device)
+                else:
+                    boundary_loss = torch.tensor([0.0 for _ in self.test_loss_fn], device=self.device)
                 test_loss += self.config.boundary_loss_factor * boundary_loss
                 total_prediction_loss += prediction_loss
                 total_harmonic_psi_loss += harmonic_psi_loss

@@ -86,9 +86,13 @@ if __name__ == "__main__":
         #Check Training data
         name = "data_train.pt"
         points = torch.load(dir + name)
-        train_ind = random.randint(0, n_u_train-1)
+        train_ind = random.randint(0, n_u_train-1) # Randomly select a training data expression
         u_slice_ind = slice(*points["u_data_addresses"][train_ind])
         f_slice_ind = slice(*points["f_data_addresses"][train_ind])
+
+        train_f_mesh_idx = points["u_to_f_mesh_idx"][u_slice_ind][0]
+        train_f_values_idx = points["u_point_to_expr_idx"][u_slice_ind][0]
+
         #Check train diffusion term
         if darcy_flow:
             train_params = DataGenerationParameters(**retrieve_dict_from_json(dir+"train_params.json"))
@@ -103,8 +107,8 @@ if __name__ == "__main__":
         u_values = points["u_values"][u_slice_ind]
         plot_points(u_coordinates, u_values, title=plot_title + f'u(x) Data')
         
-        f_values = points["f_values"][f_slice_ind]
-        f_mesh = points["f_meshes"][f_slice_ind]
+        f_mesh = points["f_meshes"][train_f_mesh_idx]
+        f_values = points["f_values"][train_f_mesh_idx][train_f_values_idx]
         plot_points(f_mesh, f_values,title=plot_title + f'f(x) Data')
 
         #Check Test data
@@ -113,6 +117,9 @@ if __name__ == "__main__":
         test_ind = random.randint(0, n_u_test-1)
         u_slice_ind = slice(*points["u_data_addresses"][test_ind])
         f_slice_ind = slice(*points["f_data_addresses"][test_ind])
+
+        test_f_mesh_idx = points["u_to_f_mesh_idx"][u_slice_ind][0]
+        test_f_values_idx = points["u_point_to_expr_idx"][u_slice_ind][0]
         #Check test diffusion term
         if darcy_flow:
             train_params = DataGenerationParameters(**retrieve_dict_from_json(dir+"test_params.json"))
@@ -128,8 +135,8 @@ if __name__ == "__main__":
         u_values = points["u_values"][u_slice_ind]
         plot_points(u_coordinates, u_values, title=plot_title + f'u(x) Data')
         
-        f_values = points["f_values"][f_slice_ind]
-        f_mesh = points["f_meshes"][f_slice_ind]
+        f_mesh = points["f_meshes"][test_f_mesh_idx]
+        f_values = points["f_values"][test_f_mesh_idx][test_f_values_idx]
         plot_points(f_mesh, f_values,title=plot_title + f'f(x) Data')
 
 

@@ -71,7 +71,7 @@ def generate_poisson_points(n: int, domain: tuple, eval_points: torch.Tensor, in
         total_eval_values.append(values)
     
     total_eval_values = torch.tensor(total_eval_values).flatten() # num_f_terms * len(eval_points) size Tensor 
-    total_integration_values = torch.stack(total_integration_values).flatten() # num_f_terms * len(integration_points) size Tensor
+    total_integration_values = torch.stack(total_integration_values) # num_f_terms x len(integration_points) size Tensor
 
     return {"parameters": total_parameters, "u_values": total_eval_values, "f_values": total_integration_values}
 
@@ -163,7 +163,7 @@ def generate_darcy_flow_points(n: int, domain: tuple, eval_points: torch.Tensor,
     if (total_eval_values == torch.inf).any() or (total_eval_values == -torch.inf).any():
         print("Warning: Inf values detected in total_eval_values, aborting.")
         assert False, "Inf values detected in total_eval_values, aborting."
-    total_integration_values = torch.stack(total_integration_values).flatten() # num_f_terms * len(integration_points) size Tensor
+    total_integration_values = torch.stack(total_integration_values) # num_f_terms x len(integration_points) size Tensor
 
     return {"parameters": total_parameters, 
             "u_values": total_eval_values, 

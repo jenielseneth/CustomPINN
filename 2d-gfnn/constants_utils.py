@@ -40,7 +40,8 @@ class Hyperparameters:
     prediction_loss_factor: float = 1.0
     num_runs: int = 1
     device: torch.device = torch.device("mps")
-    wandb_project_name: str = "test"
+    wandb_project_name: str = "test",
+    test_dir: str | None = None
 
     def __post_init__(self):
         if self.num_runs < 1:

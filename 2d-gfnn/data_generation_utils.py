@@ -329,12 +329,12 @@ def multiple_f_meshes_generate_points(domain, save_dir: str, file_name: str, log
 
         # f_mesh = torch.vstack([f_points for _ in range(n_f)]) # size: (num_expr * f_mesh_size , 2)
         f_mesh = f_points # size: (f_mesh_size, 2)
-        f_values = output_dict["f_values"] # size: (num_expr * f_mesh_size, )
+        f_values = output_dict["f_values"] # size: (num_expr * len(f_mesh_size),)
 
         u_data_addresses = []
         f_data_addresses = []
-        # for each i, u_data_addresses[i] corresponds to the u_points for the i-th f_mesh_size.
-        # for each i, f_data_addresses[i] corresponds to the f_points for the i-th f_mesh_size.
+        # for each i, u_data_addresses[i] corresponds to the u_points for the i-th n_expr.
+        # for each i, f_data_addresses[i] corresponds to the f_points for the i-th n_expr.
         for j in range(n_f):
             u_address = (u_address_start, u_address_start + len(u_points))
             u_address_start += len(u_points)
@@ -352,8 +352,8 @@ def multiple_f_meshes_generate_points(domain, save_dir: str, file_name: str, log
         # For each u point, we need to know which f mesh it corresponds to.
         u_to_f_mesh_idx += [i] * len(mesh_points)
 
-        total_u_data_addresses += u_data_addresses
-        total_f_data_addresses += f_data_addresses
+        total_u_data_addresses.append(u_data_addresses)
+        total_f_data_addresses.append(f_data_addresses)
 
         total_u_mesh_points.append(mesh_points)
         total_u_mesh_values.append(u_values)
@@ -363,9 +363,7 @@ def multiple_f_meshes_generate_points(domain, save_dir: str, file_name: str, log
         mesh_size_address_start += len(mesh_points)
 
     total_u_mesh_points = torch.cat(total_u_mesh_points, 0) # size: (len(f_mesh_sizes) * num_expr * u_mesh_size, 2)
-    total_u_mesh_values = torch.cat(total_u_mesh_values, 0) # size: (len(f_mesh_sizes) * num_expr * u_mesh_size, )
-    # total_f_mesh_points = torch.cat(total_f_mesh_points, 0) # size: (len(f_mesh_sizes) * num_expr * f_mesh_size, 2)
-    # total_f_mesh_values = torch.cat(total_f_mesh_values, 0) # size: (len(f_mesh_sizes) * num_expr * f_mesh_size, )
+    total_u_mesh_values = torch.cat(total_u_mesh_values, 0) # size: (len(f_mesh_sizes) * num_expr * u_mesh_size,)
 
 
     data = {'coordinates': total_u_mesh_points, 'u_values': total_u_mesh_values, 'f_values': total_f_mesh_values, 

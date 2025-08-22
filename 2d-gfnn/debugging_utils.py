@@ -69,7 +69,7 @@ def check_poisson_2d_harmonic_func(model, eval_points, integration_points, quadr
 
     approx_values = evaluate_greens_function_integral(greens_function=model, evaluation_mesh=eval_points, integration_mesh_values=integration_values,
                                       integration_meshes=integration_points, quadrature_weights=quadrature_weights)
-    approx_log_values = evaluate_greens_function_integral(greens_function=lambda x, s: torch.log(torch.sqrt(((x-s)**2).sum(-1))), evaluation_mesh=eval_points, integration_mesh_values=integration_values,
+    approx_log_values = evaluate_greens_function_integral(greens_function=lambda x, s: -1/(2*torch.pi)*torch.log(torch.sqrt(((x-s)**2).sum(-1))), evaluation_mesh=eval_points, integration_mesh_values=integration_values,
                                       integration_meshes=integration_points, quadrature_weights=quadrature_weights)
     approx_psi_values = evaluate_greens_function_integral(greens_function=lambda x, s: model.psi(x, s)[..., 0], evaluation_mesh=eval_points, integration_mesh_values=integration_values,
                                       integration_meshes=integration_points, quadrature_weights=quadrature_weights)
@@ -79,10 +79,18 @@ def check_poisson_2d_harmonic_func(model, eval_points, integration_points, quadr
     integration_values_times_weights = integration_values * quadrature_weights
 
     log_info = "|G(x,s)| on boundary: " + str(torch.sum(torch.abs(approx_values[bnd_idx])).item()) 
-    plot_multiple_points(points_list=[eval_points, eval_points, eval_points, eval_points, integration_points, integration_points], 
-                         values_list=[approx_psi_values, approx_log_values, approx_values, gt_values, integration_values, integration_values_times_weights], 
-                         title_list=["h(x) ≈ ∫Ψ(x,s)f(s)ds",  "∫log(|x-s|)f(s)ds", "uᵃᵖᵖʳᵒˣ(x) ≈ ∫G(x,s)f(s)ds", "uᵍᵗ(x)", "f(s) over Ω", "f(s) * w(s) over Ω"], 
-                         cmap_list=["viridis", "plasma", "viridis", "viridis", "viridis", "plasma"],
+    plot_multiple_points(points_list=[eval_points, eval_points, 
+                                      eval_points, eval_points, 
+                                      integration_points, integration_points], 
+                         values_list=[approx_psi_values, approx_log_values, 
+                                      approx_values, gt_values, 
+                                      integration_values, integration_values_times_weights], 
+                         title_list=["h(x) ≈ ∫Ψ(x,s)f(s)ds",  "-1/(2*pi) ∫log(|x-s|)f(s)ds", 
+                                     "uᵃᵖᵖʳᵒˣ(x) ≈ ∫G(x,s)f(s)ds", "uᵍᵗ(x)", 
+                                     "f(s) over Ω", "f(s) * w(s) over Ω"], 
+                         cmap_list=["viridis", "plasma", 
+                                    "viridis", "viridis", 
+                                    "viridis", "plasma"],
                          main_title="Harmonic function h(x) Analysis",
                          axs_size=(3,2),
                          log_info=log_info, 

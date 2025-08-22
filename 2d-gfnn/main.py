@@ -22,6 +22,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--rd', type=str, required=True, help='Which res folder to use.')
+    parser.add_argument('--td', type=str, help='Which test folder to use.')
     # Which tests to run
     parser.add_argument('--debug', action='store_true', help='Run debug mode.') 
     parser.add_argument('--wandb', type=str, help='Which name the WandB run uses.')
@@ -33,12 +34,12 @@ if __name__ == "__main__":
         test_batch_size=128,
         train_excl_boundary_points=False,
         test_excl_boundary_points=False,
-        train_subset_idx=10000,
+        train_subset_idx=40000,
         test_subset_idx=4000,
         model_cls=CustomPINN_Green2D_PoissonExplicit,
         model_params={"hidden_size":16, "num_layers":5},
         optimizer_cls=torch.optim.Adam,
-        optimizer_params={"lr":1e-3, "weight_decay":0},
+        optimizer_params={"lr":1e-4, "weight_decay":0},
         scheduler_cls= None,
         scheduler_params={"step_size":0, "gamma":0.5},
         l_weights=False,
@@ -50,7 +51,8 @@ if __name__ == "__main__":
         prediction_loss_factor=1.0,
         boundary_loss_factor=1.0,
         device=torch.device("mps"),
-        wandb_project_name=args.wandb if args.wandb else "test"
+        wandb_project_name=args.wandb if args.wandb else "test",
+        test_dir=args.td
     )
 
     # User input for the folder from which we retrieve data..
@@ -59,6 +61,18 @@ if __name__ == "__main__":
         dirs = [directory.strip() for directory in directory_input.split(",")]
     else:
         dirs = [directory_input.strip()] 
+    
+    test_directory_input = args.td
+    if test_directory_input is not None:
+        test_dir = "./res/" + test_directory_input.strip() + "/"
+        test_data_dir = test_dir + "data/"
+        if not os.path.exists(test_dir):
+            raise IsADirectoryError(f'The directory {test_dir} does not exist.')
+        if not os.path.exists(test_data_dir):
+            raise IsADirectoryError(f'The directory {test_data_dir} does not exist.')
+    else:
+        test_dir = None
+        test_data_dir = None
 
     # If debug_mode is True, no model will be saved or be logged into WandB.
     debug_mode = args.debug
@@ -83,7 +97,11 @@ if __name__ == "__main__":
         train_data = GreenPINNDataset(data_file_path=data_dir, data_file_name="data_train.pt", subset_idx=config.train_subset_idx)
         if config.train_excl_boundary_points:
             train_data.interior_points_dataset()
-        test_data = GreenPINNDataset(data_file_path=data_dir, data_file_name="data_test.pt", subset_idx=config.test_subset_idx)
+        
+        if test_dir is not None:
+            test_data = GreenPINNDataset(data_file_path=test_data_dir, data_file_name="data_test.pt", subset_idx=config.test_subset_idx)
+        else:
+            test_data = GreenPINNDataset(data_file_path=data_dir, data_file_name="data_test.pt", subset_idx=config.test_subset_idx)
         if config.test_excl_boundary_points:
             test_data.interior_points_dataset()
             

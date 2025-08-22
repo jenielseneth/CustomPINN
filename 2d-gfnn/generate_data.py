@@ -41,15 +41,17 @@ if __name__ == "__main__":
         if darcy_flow:
             assert False, "Darcy flow not implemented yet, haven't found a workaround for saving darcy flow points for multiple sized u_meshes."
 
-        n_u_train = 100
-        n_u_test = 100
+        n_u_train = 100 # Amount of source terms per training mesh for training data
+        n_u_test = 100 # Amount of source terms per test mesh for training data
         u_train_mesh_type: mesh_type = "chebyshev"
         u_train_mesh_sizes = [(8, 8), (12, 12), (20, 20)]
+        u_train_mesh_sizes = [(20, 20)]
         u_test_mesh_type: mesh_type = "chebyshev"
         u_test_mesh_sizes = [(8, 8), (12, 12), (20, 20)]
+        u_test_mesh_sizes = [(20, 20)]
         f_mesh_type: mesh_type = "chebyshev"
         f_mesh_sizes = [(4,4), (6,6), (9,9), (13,13), (16,16), (18,18), (21,21)]
-        # f_mesh_sizes = [(21,21)]
+        f_mesh_sizes = [(7,7)]
         mesh_size_tuples = []
 
 
@@ -86,9 +88,10 @@ if __name__ == "__main__":
         #Check Training data
         name = "data_train.pt"
         points = torch.load(dir + name)
+        mesh_ind = random.randint(0, len(f_mesh_sizes)-1) # Randomly select a mesh
         train_ind = random.randint(0, n_u_train-1) # Randomly select a training data expression
-        u_slice_ind = slice(*points["u_data_addresses"][train_ind])
-        f_slice_ind = slice(*points["f_data_addresses"][train_ind])
+        u_slice_ind = slice(*points["u_data_addresses"][mesh_ind][train_ind])
+        f_slice_ind = slice(*points["f_data_addresses"][mesh_ind][train_ind])
 
         train_f_mesh_idx = points["u_to_f_mesh_idx"][u_slice_ind][0]
         train_f_values_idx = points["u_point_to_expr_idx"][u_slice_ind][0]
@@ -114,9 +117,10 @@ if __name__ == "__main__":
         #Check Test data
         name = "data_test.pt"
         points = torch.load(dir + name)
-        test_ind = random.randint(0, n_u_test-1)
-        u_slice_ind = slice(*points["u_data_addresses"][test_ind])
-        f_slice_ind = slice(*points["f_data_addresses"][test_ind])
+        mesh_ind = random.randint(0, len(f_mesh_sizes)-1) # Randomly select a mesh
+        test_ind = random.randint(0, n_u_train-1) # Randomly select a training data expression
+        u_slice_ind = slice(*points["u_data_addresses"][mesh_ind][test_ind])
+        f_slice_ind = slice(*points["f_data_addresses"][mesh_ind][test_ind])
 
         test_f_mesh_idx = points["u_to_f_mesh_idx"][u_slice_ind][0]
         test_f_values_idx = points["u_point_to_expr_idx"][u_slice_ind][0]

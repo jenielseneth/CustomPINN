@@ -1,12 +1,13 @@
 from dataclasses import dataclass, field
 from typing import Iterable, TypeVar, Generic
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, BatchSampler
 from tqdm import tqdm
 from plot_utils import plot_points
 from constants_utils import mesh_type
 import sympy
 import logging
+from collections import Counter
 import random
 
 
@@ -104,10 +105,16 @@ class GreensConstantsDataclass:
 
 @dataclass
 class DatasetReturnClass:
+    '''
+    Returns:
+    crd: Tensor of evaluation points.
+    u_vals: Tensor of evaluation values.
+    f_mesh_idx: int of the source term mesh.
+    f_vals: Tensor of source term values.'''
     crd: torch.Tensor
     u_vals: torch.Tensor 
-    f_mesh_idx: torch.Tensor
-    f_vals_idx: torch.Tensor 
+    f_mesh_idx: int | list[int]
+    f_vals: torch.Tensor 
 class GreenPINNDataset(Dataset):
     '''
     Wrapper to retrieve all datasets and store them into one main dataset wrapper.
@@ -138,17 +145,16 @@ class GreenPINNDataset(Dataset):
         )
         
         self.evaluation_mesh = data["coordinates"] # n_expr * (a_1 * u_mesh_size_1 + a_2 * u_mesh_size_2 + ... + a_m * u_mesh_size_m) x 2 Tensor of evaluation meshes.
-        self.evaluation_values = data["u_values"] # n_expr * (a_1 * u_mesh_size_1 + a_2 * u_mesh_size_2 + ... + a_m * u_mesh_size_m) Tensor of ground truth evaluation values.
-        self.f_meshes = data["f_meshes"] # n_expr * (f_mesh_size_1 + f_mesh_size_2 + ... + f_mesh_size_n  ) x 2 Tensor of integration meshes.
-        self.f_values = data["f_values"] # n_expr * (f_mesh_size_1 + f_mesh_size_2 + ... + f_mesh_size_n  ) Tensor of source term values.
+        self.evaluation_values = data["u_values"] #  n_expr * (a_1 * u_mesh_size_1 + a_2 * u_mesh_size_2 + ... + a_m * u_mesh_size_m) Tensor of ground truth evaluation values.
+        self.f_meshes = data["f_meshes"] # List of length n_f_mesh; items are of size f_mesh_size_i x 2 Tensor of source term meshes.
+        self.f_values = data["f_values"] # List of length n_f_mesh; items are of size num_expr * len(f_mesh_size) Tensor of source term values.
         self.u_length = len(self.evaluation_values) 
         self.f_length = len(self.f_values) 
-        self.u_data_addresses = data["u_data_addresses"] # List of length n_expr (number of source terms) containing tuples (start, end) for each source term.
-        self.f_data_addresses = data["f_data_addresses"] # List of length n_expr (number of source terms) containing tuples (start, end) for each source term.
+        self.u_data_addresses = data["u_data_addresses"] # List of length n_f_mesh (number of f_meshes); each item contains n_expr (number of source terms) of tuples (start, end) for u_addresses for each source term.
+        self.f_data_addresses = data["f_data_addresses"] # List of length n_f_mesh (number of f_meshes); each item contains n_expr (number of source terms) of tuples (start, end) for u_addresses for each source term.
         self.u_to_f_mesh_idx = data["u_to_f_mesh_idx"] # List of length u_length (number of source terms) containing the index of the f_mesh for each u coordinate point.
         self.u_point_to_expr_idx = data["u_point_to_expr_idx"] # List of length u_length (number of source terms) containing the index of the source term for each u coordinate point.
-        self.mesh_addresses = data["mesh_size_addresses"] # List of tuples (start, end) for the evaluation points for each corresponding mesh size.
-        
+        self.mesh_addresses = data["mesh_size_addresses"] # List of length n_f_mesh of tuples (start, end) for the evaluation points for each corresponding mesh size.
         # Calculate starting indices in relation to amount of total source terms for each new size f - i.e. calculating n_expr_1 + n_expr_2 + ... + n_expr_n   
         self.num_f_terms = []
         start = 0
@@ -162,13 +168,26 @@ class GreenPINNDataset(Dataset):
         #     self.u_inds[slice(*address)] = [i] * (address[1]-address[0])
         
         if subset_idx is not None:
-            assert subset_idx < self.u_length, f"sub_idx {subset_idx} is out of bounds for the dataset with length {self.u_length}."
-            idxs = random.sample(range(0, self.u_length), subset_idx)
-            self.evaluation_mesh = self.evaluation_mesh[idxs]
-            self.evaluation_values = self.evaluation_values[idxs]
-            self.u_length = subset_idx        
-            self.u_to_f_mesh_idx = [data["u_to_f_mesh_idx"][i] for i in idxs]
-            self.u_point_to_expr_idx = [data["u_point_to_expr_idx"][i] for i in idxs]
+            if subset_idx < self.u_length:
+                idxs = random.sample(range(0, self.u_length), subset_idx)
+                self.u_to_f_mesh_idx = [data["u_to_f_mesh_idx"][i] for i in idxs]
+                sorted_indices = sorted(range(len(self.u_to_f_mesh_idx)),key=lambda i: self.u_to_f_mesh_idx [i])
+
+                self.evaluation_mesh = self.evaluation_mesh[sorted_indices]
+                self.evaluation_values = self.evaluation_values[sorted_indices]
+                self.u_to_f_mesh_idx = [self.u_to_f_mesh_idx[i] for i in sorted_indices]
+                self.u_point_to_expr_idx = [data["u_point_to_expr_idx"][i] for i in sorted_indices]
+                self.u_length = subset_idx      
+                mesh_address_start = 0
+                new_mesh_addresses = []
+                mesh_counter = Counter(self.u_to_f_mesh_idx)
+                for key, value in sorted(mesh_counter.items()):
+                    new_mesh_addresses.append((mesh_address_start, mesh_address_start + value))
+                    mesh_address_start += value
+                self.mesh_addresses = new_mesh_addresses
+            elif subset_idx > self.u_length:
+                raise ValueError(f"Subset index {subset_idx} is larger than the dataset length {self.u_length}.")
+
 
 
 
@@ -224,32 +243,32 @@ class GreenPINNDataset(Dataset):
         '''
         plot_points(points=self.constants.integration_mesh)
 
-    def get_f_mesh(self, u_idx: int | list[int]) -> list[torch.Tensor]:
-        '''
-        Returns the f_mesh for the given index of a u coordinate point.
-        '''
-        idx = self.u_to_f_mesh_idx[u_idx] # Get the index of the corresponding f_mesh for the given u coordinate point.
-        if type(idx) == list:
-            raise NotImplementedError("Not implemented yet for lists.")
-            f_meshes = [self.f_meshes[i] for i in idx]
-        else:
-            f_meshes = self.f_meshes[idx]
+    # def get_f_mesh(self, u_idx: int | list[int]) -> list[torch.Tensor]:
+    #     '''
+    #     Returns the f_mesh for the given index of a u coordinate point.
+    #     '''
+    #     idx = self.u_to_f_mesh_idx[u_idx] # Get the index of the corresponding f_mesh for the given u coordinate point.
+    #     if type(idx) == list:
+    #         raise NotImplementedError("Not implemented yet for lists.")
+    #         f_meshes = [self.f_meshes[i] for i in idx]
+    #     else:
+    #         f_meshes = self.f_meshes[idx]
         
-        return f_meshes # (len(u_idx) x f_mesh_size x 2) Tensor of the source term mesh.
+    #     return f_meshes # (len(u_idx) x f_mesh_size x 2) Tensor of the source term mesh.
     
-    def get_f_values(self, u_idx: int | list[int]) -> list[torch.Tensor]:
-        '''
-        Returns the f_values for the given index of a u coordinate point.
-        '''
-        mesh_idx = self.u_to_f_mesh_idx[u_idx] # Get the index of the source term for the given u coordinate point.
-        value_idx = self.u_point_to_expr_idx[u_idx] # Get the index of the source term for the given u coordinate point.
+    # def get_f_values(self, u_idx: int | list[int]) -> list[torch.Tensor]:
+    #     '''
+    #     Returns the f_values for the given index of a u coordinate point.
+    #     '''
+    #     mesh_idx = self.u_to_f_mesh_idx[u_idx] # Get the index of the source term for the given u coordinate point.
+    #     value_idx = self.u_point_to_expr_idx[u_idx] # Get the index of the source term for the given u coordinate point.
 
-        if type(u_idx) == list:
-            raise NotImplementedError("Not implemented yet for lists.")
-            f_values = [self.f_values[idx][value_idx[i]] for i, idx in enumerate(mesh_idx)]
-        else:
-            f_values = self.f_values[mesh_idx][value_idx]
-        return f_values # (len(u_idx) x f_mesh_size) Tensor of the source term mesh.
+    #     if type(u_idx) == list:
+    #         raise NotImplementedError("Not implemented yet for lists.")
+    #         f_values = [self.f_values[idx][value_idx[i]] for i, idx in enumerate(mesh_idx)]
+    #     else:
+    #         f_values = self.f_values[mesh_idx][value_idx]
+    #     return f_values # (len(u_idx) x f_mesh_size) Tensor of the source term mesh.
 
     def __len__(self):
         # return total dataset size
@@ -257,15 +276,76 @@ class GreenPINNDataset(Dataset):
 
     def __getitem__(self, index) -> DatasetReturnClass:
         '''
-        Returns
+        Returns the evaluation mesh, evaluation values, f_mesh_idx and f_values for the given index.
+        We store the different f_meshes as a list of tensors as an attribute of the dataset.
+        In this implementation, we assume that we return one single f_mesh_idx
+        Using the GreenBatchSampler below, for each batch, we sample a random mesh size and return the corresponding f_mesh and f_values.
         '''
-        ret_item = DatasetReturnClass(
-            crd=self.evaluation_mesh[index],
-            u_vals=self.evaluation_values[index],
-            f_mesh_idx=self.u_to_f_mesh_idx[index],
-            f_vals_idx=self.u_point_to_expr_idx[index]
-        )
-        return ret_item
+        if isinstance(index, int):
+            ret_item = DatasetReturnClass(
+                crd=self.evaluation_mesh[index],
+                u_vals=self.evaluation_values[index],
+                f_mesh_idx=self.u_to_f_mesh_idx[index],
+                f_vals=self.f_values[self.u_to_f_mesh_idx[index]][self.u_point_to_expr_idx[index]]
+            )
+            return ret_item
+        elif isinstance(index, slice):
+            u_to_f_mesh_idx=self.u_to_f_mesh_idx[index]
+            u_point_to_expr_idx=self.u_point_to_expr_idx[index]
+            ret_item = DatasetReturnClass(
+                crd=self.evaluation_mesh[index],
+                u_vals=self.evaluation_values[index],
+                f_mesh_idx=self.u_to_f_mesh_idx[index],
+                f_vals=torch.stack([self.f_values[u_to_f_mesh_idx[i]][u_point_to_expr_idx[i]] for i in range(len(u_to_f_mesh_idx))])
+            )
+            return ret_item
+
+        elif isinstance(index, list[slice]):
+            total_crd = []
+            total_u_vals = []
+            total_f_mesh_idx = []
+            total_f_vals = []
+            for i in index:
+                u_to_f_mesh_idx=self.u_to_f_mesh_idx[i]
+                u_point_to_expr_idx=self.u_point_to_expr_idx[i]
+                logger.info(u_to_f_mesh_idx, u_point_to_expr_idx)
+                total_crd.append(self.evaluation_mesh[i])
+                total_u_vals.append(self.evaluation_values[i])
+                total_f_mesh_idx += self.u_to_f_mesh_idx[i]
+                total_f_vals.append(torch.cat([self.f_values[u_to_f_mesh_idx[i]][u_point_to_expr_idx[i]] for i in range(len(u_to_f_mesh_idx))]))
+            ret_item = DatasetReturnClass(
+                crd=self.evaluation_mesh[index],
+                u_vals=self.evaluation_values[index],
+                f_mesh_idx=self.u_to_f_mesh_idx[index],
+                f_vals=torch.stack([self.f_values[u_to_f_mesh_idx[i]][u_point_to_expr_idx[i]] for i in range(len(u_to_f_mesh_idx))])
+            )
+            return ret_item
+
+
+class GreenBatchSampler(BatchSampler):
+    '''
+    BatchSampler that samples a random mesh size for each batch.
+    It uses the mesh_size_addresses to sample a random mesh size, and from the chosen mesh size, 
+        it samples a batch of corresponding indices within the range of idx addresses associated with that mesh size.
+    '''
+    def __init__(self, sampler, batchsize, drop_last, mesh_size_addresses):
+        super().__init__(sampler, batchsize, drop_last)
+        self.num_mesh_sizes = len(mesh_size_addresses)
+        self.mesh_size_addresses = mesh_size_addresses
+        self.batchsize = batchsize
+
+    def __iter__(self):
+        for _ in range(0, len(self.sampler), self.batchsize):   # indices from sampler
+            i = random.randint(0, self.num_mesh_sizes - 1)
+            mesh_size_address = self.mesh_size_addresses[i]
+            assert mesh_size_address[1] - mesh_size_address[0] >= self.batchsize, \
+                f"Mesh size address {mesh_size_address} is smaller than batch size {self.batchsize}."
+
+            batch = random.sample(range(*mesh_size_address), self.batchsize)
+            yield batch
+        if len(batch) > 0 and not self.drop_last:
+            yield batch
+
 
 def greens_pinn_dataset_collate_fn(batch: list[DatasetReturnClass]) -> DatasetReturnClass:
     '''
@@ -273,7 +353,7 @@ def greens_pinn_dataset_collate_fn(batch: list[DatasetReturnClass]) -> DatasetRe
     '''
     crd = torch.stack([item.crd for item in batch])
     u_vals = torch.stack([item.u_vals for item in batch])
-    f_mesh_idx = [item.f_mesh_idx for item in batch]
-    f_vals_idx = [item.f_vals_idx for item in batch]
+    f_mesh_idx = batch[0].f_mesh_idx
+    f_vals = torch.stack([item.f_vals for item in batch])
     
-    return DatasetReturnClass(crd=crd, u_vals=u_vals, f_mesh_idx=f_mesh_idx, f_vals_idx=f_vals_idx)
+    return DatasetReturnClass(crd=crd, u_vals=u_vals, f_mesh_idx=f_mesh_idx, f_vals=f_vals)

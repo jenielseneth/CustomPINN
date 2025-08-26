@@ -45,7 +45,7 @@ if __name__ == "__main__":
         l_weights=False,
         boundary_loss=True,
         harmonic_psi_loss=False,
-        num_epochs=40,
+        num_epochs=200,
         num_runs=1,
         harmonic_psi_loss_factor=0.01,
         prediction_loss_factor=1.0,

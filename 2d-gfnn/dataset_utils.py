@@ -322,7 +322,7 @@ class GreenPINNDataset(Dataset):
             return ret_item
 
 
-class GreenBatchSampler(BatchSampler):
+class GreenOneByOneBatchSampler(BatchSampler):
     '''
     BatchSampler that samples a random mesh size for each batch.
     It uses the mesh_size_addresses to sample a random mesh size, and from the chosen mesh size, 
@@ -347,9 +347,9 @@ class GreenBatchSampler(BatchSampler):
             yield batch
 
 
-def greens_pinn_dataset_collate_fn(batch: list[DatasetReturnClass]) -> DatasetReturnClass:
+def greens_pinn_dataset_obo_collate_fn(batch: list[DatasetReturnClass]) -> DatasetReturnClass:
     '''
-    Collate function for the GreenPINNDataset.
+    Collate function for the GreenPINNDataset in one by one fashion.
     '''
     crd = torch.stack([item.crd for item in batch])
     u_vals = torch.stack([item.u_vals for item in batch])

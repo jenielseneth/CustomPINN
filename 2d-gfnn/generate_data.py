@@ -45,10 +45,10 @@ if __name__ == "__main__":
         n_u_test = 100 # Amount of source terms per test mesh for training data
         u_train_mesh_type: mesh_type = "chebyshev"
         u_train_mesh_sizes = [(8, 8), (12, 12), (20, 20)]
-        u_train_mesh_sizes = [(20, 20)]
+        # u_train_mesh_sizes = [(20, 20)]
         u_test_mesh_type: mesh_type = "chebyshev"
         u_test_mesh_sizes = [(8, 8), (12, 12), (20, 20)]
-        u_test_mesh_sizes = [(20, 20)]
+        # u_test_mesh_sizes = [(20, 20)]
         f_mesh_type: mesh_type = "chebyshev"
         f_mesh_sizes = [(4,4), (6,6), (9,9), (13,13), (16,16), (18,18), (21,21)]
         f_mesh_sizes = [(7,7)]

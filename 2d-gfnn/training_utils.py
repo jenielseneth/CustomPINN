@@ -12,10 +12,10 @@ from data_generation_utils import sample_points, gcd_chebyshev_mesh_size
 from plot_utils import plot_points
 from pde_utils import InferenceUtils, evaluate_greens_function_integral, greens_function_laplacian_2d, u_laplacian_2d
 from datetime import datetime
-from dataset_utils import (GreenBatchSampler, GreenPINNDataset, 
+from dataset_utils import (GreenOneByOneBatchSampler, GreenPINNDataset, 
                            get_non_corners_mesh, 
                            get_corners_idx, 
-                           greens_pinn_dataset_collate_fn, 
+                           greens_pinn_dataset_obo_collate_fn, 
                            DatasetReturnClass, )
 from constants_utils import BoundaryPointLossParams, Hyperparameters
 from random_utils import log_dict_as_json
@@ -66,10 +66,6 @@ class GreensTrainer:
             debug_mode: bool
                 If true, the Trainer doesn't log results to WandB or saves a model.
 
-
-
-
-            
         '''
         
         ## Lazy instantiation of model, optimizer and scheduler for the purpose of multiple runs.
@@ -101,7 +97,7 @@ class GreensTrainer:
         self.train_f_meshes = [mesh.to(self.device) for mesh in self.training_data.f_meshes]
         self.test_data = test_data
         self.test_f_meshes = [mesh.to(self.device) for mesh in self.test_data.f_meshes]
-        training_batch_sampler = GreenBatchSampler(
+        training_batch_sampler = GreenOneByOneBatchSampler(
             sampler=range(len(self.training_data)), 
             batchsize=self.config.training_batch_size, 
             drop_last=True, 
@@ -111,13 +107,13 @@ class GreensTrainer:
         self.trainloader = DataLoader(
             self.training_data,
             batch_sampler=training_batch_sampler,
-            collate_fn=greens_pinn_dataset_collate_fn
+            collate_fn=greens_pinn_dataset_obo_collate_fn
         )
         
-        test_batch_sampler = GreenBatchSampler(sampler=range(len(self.test_data)), batchsize=self.config.test_batch_size, 
+        test_batch_sampler = GreenOneByOneBatchSampler(sampler=range(len(self.test_data)), batchsize=self.config.test_batch_size, 
                                                    drop_last=True, mesh_size_addresses=self.test_data.mesh_addresses)
         self.testloader  = DataLoader(self.test_data, 
-                                     collate_fn=greens_pinn_dataset_collate_fn,
+                                     collate_fn=greens_pinn_dataset_obo_collate_fn,
                                      batch_sampler=test_batch_sampler)
         self.train_inference_utils = InferenceUtils(constants=self.training_data.constants, config=config)
         self.test_inference_utils = InferenceUtils(constants=self.test_data.constants, config=config)
@@ -150,7 +146,7 @@ class GreensTrainer:
         # total_harmonic_u_loss = 0
         total_boundary_loss = 0
         
-        for item in tqdm(self.trainloader, desc="Training", total=len(self.trainloader), leave=False, ascii=' >='):
+        for i, item in tqdm(enumerate(self.trainloader), desc="Training", total=len(self.trainloader), leave=False, ascii=' >='):
             #Temporary solution to avoid calculating on corners
             # Check if training data has excluded boundary points and remove corner points accordingly
             if self.config.train_excl_boundary_points == False:
@@ -162,9 +158,6 @@ class GreensTrainer:
                 evaluation_mesh = item.crd.to(self.device)
                 u_gt = item.u_vals.to(self.device)
                 integration_mesh_values = item.f_vals.to(self.device)
-
-            logger.info(item.f_mesh_idx)
-            assert False
             integration_mesh = self.train_f_meshes[item.f_mesh_idx]
             ### COMPUTE PREDICTION AND LOSS
             # Compute ||∫G(x,y)f(y)dy - u(x)||
@@ -238,7 +231,8 @@ class GreensTrainer:
             # else:
             #     harmonic_u_loss = torch.tensor(0.0, device=self.device)
 
-
+            # if i % 3 == 0 or i == len(self.trainloader) - 1:
+            # logger.info(f"Performing optimization")
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()

@@ -2,7 +2,7 @@
 # with Dirichlet boundary condition u = 0
 from matplotlib import animation, pyplot as plt
 from ngsolve import *
-from pde_utils import evaluate_greens_function_integral
+from pde_utils import standardized_evaluate_greens_function_integral
 from plot_utils import plot_points, plot_multiple_points
 from data_generation_utils import sample_points
 from loss import fetch_quadrature_weights
@@ -67,11 +67,11 @@ def check_poisson_2d_harmonic_func(model, eval_points, integration_points, quadr
 
     gt_values = torch.tensor(gt_values)
 
-    approx_values = evaluate_greens_function_integral(greens_function=model, evaluation_mesh=eval_points, integration_mesh_values=integration_values,
+    approx_values = standardized_evaluate_greens_function_integral(greens_function=model, evaluation_mesh=eval_points, integration_mesh_values=integration_values,
                                       integration_meshes=integration_points, quadrature_weights=quadrature_weights)
-    approx_log_values = evaluate_greens_function_integral(greens_function=lambda x, s: -1/(2*torch.pi)*torch.log(torch.sqrt(((x-s)**2).sum(-1))), evaluation_mesh=eval_points, integration_mesh_values=integration_values,
+    approx_log_values = standardized_evaluate_greens_function_integral(greens_function=lambda x, s: -1/(2*torch.pi)*torch.log(torch.sqrt(((x-s)**2).sum(-1))), evaluation_mesh=eval_points, integration_mesh_values=integration_values,
                                       integration_meshes=integration_points, quadrature_weights=quadrature_weights)
-    approx_psi_values = evaluate_greens_function_integral(greens_function=lambda x, s: model.psi(x, s)[..., 0], evaluation_mesh=eval_points, integration_mesh_values=integration_values,
+    approx_psi_values = standardized_evaluate_greens_function_integral(greens_function=lambda x, s: model.psi(x, s)[..., 0], evaluation_mesh=eval_points, integration_mesh_values=integration_values,
                                       integration_meshes=integration_points, quadrature_weights=quadrature_weights)
     
     int_idx, bnd_idx = get_interior_boundary_idx(domain=domain, mesh=eval_points)

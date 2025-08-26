@@ -1,3 +1,4 @@
+import random
 import torch, os, shutil
 from math import prod
 from torch.utils.data import DataLoader
@@ -10,20 +11,22 @@ from chebyshev_utils import cheb_2d_impl
 import wandb
 from data_generation_utils import sample_points, gcd_chebyshev_mesh_size
 from plot_utils import plot_points
-from pde_utils import InferenceUtils, evaluate_greens_function_integral, greens_function_laplacian_2d, u_laplacian_2d
+from pde_utils import InferenceUtils, StandardizedInferenceUtils, standardized_evaluate_greens_function_integral, greens_function_laplacian_2d, u_laplacian_2d
 from datetime import datetime
-from dataset_utils import (GreenOneByOneBatchSampler, GreenPINNDataset, 
+from dataset_utils import (GreenOneByOneBatchSampler,
+                           GreenPINNDataset, 
                            get_non_corners_mesh, 
                            get_corners_idx, 
-                           greens_pinn_dataset_obo_collate_fn, 
+                           greens_pinn_dataset_total_collate_fn, 
                            DatasetReturnClass, )
 from constants_utils import BoundaryPointLossParams, Hyperparameters
 from random_utils import log_dict_as_json
 import logging
 
 
+logging.basicConfig(level=logging.INFO,
+format="%(filename)s:%(lineno)d - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 class GreensTrainer:
     def __init__(self, 
                  training_data: GreenPINNDataset, test_data: GreenPINNDataset, 
@@ -97,26 +100,29 @@ class GreensTrainer:
         self.train_f_meshes = [mesh.to(self.device) for mesh in self.training_data.f_meshes]
         self.test_data = test_data
         self.test_f_meshes = [mesh.to(self.device) for mesh in self.test_data.f_meshes]
-        training_batch_sampler = GreenOneByOneBatchSampler(
-            sampler=range(len(self.training_data)), 
-            batchsize=self.config.training_batch_size, 
-            drop_last=True, 
-            mesh_size_addresses=self.training_data.mesh_addresses
-        )
+        # training_batch_sampler = GreenOneByOneBatchSampler(
+        #     sampler=range(len(self.training_data)), 
+        #     batchsize=self.config.training_batch_size, 
+        #     drop_last=True, 
+        #     mesh_size_addresses=self.training_data.mesh_addresses
+        # )
 
         self.trainloader = DataLoader(
             self.training_data,
-            batch_sampler=training_batch_sampler,
-            collate_fn=greens_pinn_dataset_obo_collate_fn
+            collate_fn=greens_pinn_dataset_total_collate_fn,
+            batch_size=self.config.training_batch_size,
+            shuffle=True
         )
         
-        test_batch_sampler = GreenOneByOneBatchSampler(sampler=range(len(self.test_data)), batchsize=self.config.test_batch_size, 
-                                                   drop_last=True, mesh_size_addresses=self.test_data.mesh_addresses)
+        # test_batch_sampler = GreenOneByOneBatchSampler(sampler=range(len(self.test_data)), batchsize=self.config.test_batch_size, 
+        #                                            drop_last=True, mesh_size_addresses=self.test_data.mesh_addresses)
         self.testloader  = DataLoader(self.test_data, 
-                                     collate_fn=greens_pinn_dataset_obo_collate_fn,
-                                     batch_sampler=test_batch_sampler)
-        self.train_inference_utils = InferenceUtils(constants=self.training_data.constants, config=config)
-        self.test_inference_utils = InferenceUtils(constants=self.test_data.constants, config=config)
+                                     collate_fn=greens_pinn_dataset_total_collate_fn,
+                                    batch_size=self.config.test_batch_size,
+                                    shuffle=True
+                                    )
+        self.train_inference_utils = StandardizedInferenceUtils(constants=self.training_data.constants, config=config)
+        self.test_inference_utils = StandardizedInferenceUtils(constants=self.test_data.constants, config=config)
         self.boundary_loss = config.boundary_loss
 
         # Temporary solution to calculate boundary points at each epoch to guarantee boundary loss is calculated.
@@ -147,35 +153,40 @@ class GreensTrainer:
         total_boundary_loss = 0
         
         for i, item in tqdm(enumerate(self.trainloader), desc="Training", total=len(self.trainloader), leave=False, ascii=' >='):
-            #Temporary solution to avoid calculating on corners
             # Check if training data has excluded boundary points and remove corner points accordingly
             if self.config.train_excl_boundary_points == False:
                 n_c, _ = get_corners_idx(domain=self.training_data.constants.domain, mesh=item.crd)
                 evaluation_mesh = item.crd[n_c].to(self.device)
                 u_gt = item.u_vals[n_c].to(self.device)
                 integration_mesh_values = item.f_vals[n_c].to(self.device)
+                integration_meshes = torch.stack([self.train_f_meshes[idx] for idx in item.f_mesh_idx])[n_c].to(self.device)
+                quadrature_weights = self.train_inference_utils.quadrature_weights[item.f_mesh_idx][n_c]
             else:
                 evaluation_mesh = item.crd.to(self.device)
                 u_gt = item.u_vals.to(self.device)
                 integration_mesh_values = item.f_vals.to(self.device)
-            integration_mesh = self.train_f_meshes[item.f_mesh_idx]
+                integration_meshes = torch.stack([self.train_f_meshes[idx] for idx in item.f_mesh_idx]).to(self.device)
+                quadrature_weights = self.train_inference_utils.quadrature_weights[item.f_mesh_idx]
+
+
             ### COMPUTE PREDICTION AND LOSS
             # Compute ||∫G(x,y)f(y)dy - u(x)||
-            u_prediction = evaluate_greens_function_integral(greens_function=model, integration_mesh_values=integration_mesh_values, 
-                                                             evaluation_mesh=evaluation_mesh, integration_meshes=integration_mesh, 
-                                                             quadrature_weights=self.train_inference_utils.quadrature_weights[item.f_mesh_idx],)
+            u_prediction = standardized_evaluate_greens_function_integral(greens_function=model, integration_mesh_values=integration_mesh_values, 
+                                                             evaluation_mesh=evaluation_mesh, integration_meshes=integration_meshes, 
+                                                             quadrature_weights=quadrature_weights)
             
             # assert NotImplementedError("The current implementation does not support multiple integration meshes. Implement evaluate_greens_function_integral.")
             prediction_loss = self.config.prediction_loss_factor * self.train_loss_fn(u_prediction, u_gt)
             loss = prediction_loss
             # Calculate boundary loss ||G(x,y) - boundary conditions||
             if self.boundary_loss == True:
-                greens_function_boundary_eval = model(self.bnd_points[:, None, :].expand(-1, integration_mesh.shape[0] ,-1), 
-                                                      integration_mesh[None, ...].expand(self.bnd_points.shape[0], -1, -1))
+                greens_function_boundary_eval = model(self.bnd_points[:, None, :].expand(-1, integration_meshes.shape[1] ,-1), 
+                                                      self.train_f_meshes[-1].expand(self.bnd_points.shape[0], -1, -1))
                 boundary_loss = self.boundary_loss_fn(greens_function_boundary_eval, torch.zeros_like(greens_function_boundary_eval))
                 loss += self.config.boundary_loss_factor * boundary_loss
             else: 
                 boundary_loss = torch.tensor(0.0, device=self.device)
+
 
             # Temporary solution to calculate the Laplacian of Psi(x, y) for Poisson equation.
             if self.config.harmonic_psi_loss:
@@ -260,16 +271,18 @@ class GreensTrainer:
 
             # Check if test data has excluded boundary points
             if not self.config.test_excl_boundary_points:
-                n_c, _ = get_corners_idx(domain=self.test_data.constants.domain, mesh=item.crd)
+                n_c, _ = get_corners_idx(domain=self.training_data.constants.domain, mesh=item.crd)
                 evaluation_mesh = item.crd[n_c].to(self.device)
                 u_gt = item.u_vals[n_c].to(self.device)
                 integration_mesh_values = item.f_vals[n_c].to(self.device)
+                integration_meshes = torch.stack([self.train_f_meshes[idx] for idx in item.f_mesh_idx])[n_c].to(self.device)
+                quadrature_weights = self.train_inference_utils.quadrature_weights[item.f_mesh_idx][n_c]
             else:
                 evaluation_mesh = item.crd.to(self.device)
                 u_gt = item.u_vals.to(self.device)
                 integration_mesh_values = item.f_vals.to(self.device)
-
-            integration_mesh = self.test_f_meshes[item.f_mesh_idx]
+                integration_meshes = torch.stack([self.train_f_meshes[idx] for idx in item.f_mesh_idx]).to(self.device)
+                quadrature_weights = self.train_inference_utils.quadrature_weights[item.f_mesh_idx]
 
             if self.config.harmonic_psi_loss:
                 assert NotImplementedError ("The current implementation does not support multiple integration meshes. Implement evaluate_greens_function_integral.")
@@ -296,16 +309,16 @@ class GreensTrainer:
 
             with torch.no_grad():
                 # Prediction loss
-                u_prediction = evaluate_greens_function_integral(greens_function=model, integration_mesh_values=integration_mesh_values, 
-                                                             evaluation_mesh=evaluation_mesh, integration_meshes=integration_mesh, 
-                                                             quadrature_weights=self.test_inference_utils.quadrature_weights[item.f_mesh_idx],)
+                u_prediction = standardized_evaluate_greens_function_integral(greens_function=model, integration_mesh_values=integration_mesh_values, 
+                                                             evaluation_mesh=evaluation_mesh, integration_meshes=integration_meshes, 
+                                                             quadrature_weights=quadrature_weights,)
                 prediction_loss = torch.tensor([loss_fn(u_prediction, u_gt) for loss_fn in self.test_loss_fn], device=self.device)
                 test_loss += self.config.prediction_loss_factor * prediction_loss
                 
                 if self.boundary_loss == True:
                 # Boundary loss ||G(x,y) - boundary conditions||
-                    greens_function_boundary_eval = model(self.bnd_points[:, None, :].expand(-1, integration_mesh.shape[0] ,-1), 
-                                                        integration_mesh[None, ...].expand(self.bnd_points.shape[0], -1, -1))
+                    greens_function_boundary_eval = model(self.bnd_points[:, None, :].expand(-1, integration_meshes.shape[1] ,-1), 
+                                                        self.train_f_meshes[-1].expand(self.bnd_points.shape[0], -1, -1))
                     boundary_loss = torch.tensor([loss_fn(greens_function_boundary_eval, torch.zeros_like(greens_function_boundary_eval)) for loss_fn in self.test_loss_fn], device=self.device)
                 else:
                     boundary_loss = torch.tensor([0.0 for _ in self.test_loss_fn], device=self.device)

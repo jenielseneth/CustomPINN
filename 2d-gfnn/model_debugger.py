@@ -7,10 +7,9 @@ import math
 from chebyshev_utils import cheb_2d_impl, cheb_2d_plot_debugger
 from constants_utils import Hyperparameters, mesh_type
 from dataset_utils import GreenPINNDataset, get_corners_idx, get_non_corners_mesh, get_interior_mesh
-from training_utils import InferenceUtils
 from plot_utils import plot_multiple_points
 from data_generation_utils import sample_points
-from pde_utils import evaluate_greens_function_integral, greens_function_laplacian_2d, u_laplacian_2d
+from pde_utils import standardized_evaluate_greens_function_integral, greens_function_laplacian_2d, u_laplacian_2d, StandardizedInferenceUtils
 from expr_generation_utils import expr_to_func, func_input_wrapper
 from random_utils import find_line_with_keyword, retrieve_dict_from_json
 from loss import fetch_quadrature_weights
@@ -79,6 +78,8 @@ def sample_problems_plotter():
     approx_values = []
     u_gt = []
     eval_points = []
+
+    inference_utils = StandardizedInferenceUtils(constants=test_data.constants, config=config)
     # size = math.prod(universal_evaluation_mesh_size)
     for f_m_i, f_v_i in zip(random_f_mesh_idx, random_f_values_idx):
         u_data_address = test_data.u_data_addresses[f_m_i][f_v_i]
@@ -88,11 +89,14 @@ def sample_problems_plotter():
         gt = sample_gt.u_vals[non_corner_idx]
         f_mesh = global_f_meshes[f_m_i]
         f_values = sample_gt.f_vals[non_corner_idx]
-        quadrature_weights = fetch_quadrature_weights(domain=domain,
-                                                    integration_mesh_size=test_data.constants.integration_mesh_sizes[f_m_i], 
-                                                    integration_mesh_type=test_data.constants.integration_mesh_type)
+        
+        # quadrature_weights = fetch_quadrature_weights(domain=domain,
+        #                                             integration_mesh_size=test_data.constants.integration_mesh_sizes[f_m_i], 
+        #                                             integration_mesh_type=test_data.constants.integration_mesh_type)
 
-        approx_values.append(evaluate_greens_function_integral(greens_function=model, 
+        quadrature_weights = inference_utils.quadrature_weights[f_m_i]
+
+        approx_values.append(standardized_evaluate_greens_function_integral(greens_function=model, 
                                                                evaluation_mesh=crd, 
                                                                integration_mesh_values=f_values,
                                                                integration_meshes=f_mesh, 
@@ -172,7 +176,7 @@ def harmonic_loss_debugger():
         # Interpolate f values onto the evaluation mesh
         f_eval_point_values = cheb_2d_impl(eval_points=interior_eval_mesh,
                      chebyshev_size=test_data.constants.integration_mesh_sizes[f_m_i],
-                     chebyshev_values=f_values[0],
+                     chebyshev_values=f_values[0][:math.prod(test_data.constants.integration_mesh_sizes[f_m_i])],
                      domain=test_data.constants.domain
                      )
         

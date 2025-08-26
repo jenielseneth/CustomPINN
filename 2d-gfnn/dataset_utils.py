@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import math
 from typing import Iterable, TypeVar, Generic
 import torch
 from torch.utils.data import Dataset, DataLoader, BatchSampler
@@ -147,7 +148,7 @@ class GreenPINNDataset(Dataset):
         self.evaluation_mesh = data["coordinates"] # n_expr * (a_1 * u_mesh_size_1 + a_2 * u_mesh_size_2 + ... + a_m * u_mesh_size_m) x 2 Tensor of evaluation meshes.
         self.evaluation_values = data["u_values"] #  n_expr * (a_1 * u_mesh_size_1 + a_2 * u_mesh_size_2 + ... + a_m * u_mesh_size_m) Tensor of ground truth evaluation values.
         self.f_meshes = data["f_meshes"] # List of length n_f_mesh; items are of size f_mesh_size_i x 2 Tensor of source term meshes.
-        self.f_values = data["f_values"] # List of length n_f_mesh; items are of size num_expr * len(f_mesh_size) Tensor of source term values.
+        self.f_values = data["f_values"] # List of length n_f_mesh; items are of size num_expr x len(f_mesh_size) Tensor of source term values.
         self.u_length = len(self.evaluation_values) 
         self.f_length = len(self.f_values) 
         self.u_data_addresses = data["u_data_addresses"] # List of length n_f_mesh (number of f_meshes); each item contains n_expr (number of source terms) of tuples (start, end) for u_addresses for each source term.
@@ -162,11 +163,18 @@ class GreenPINNDataset(Dataset):
             self.num_f_terms.append(start)
             start += n
 
-        # u_inds (u_crd_i) -> source_term_index
-        # self.u_inds = [0] * len(self.evaluation_mesh) # Map evaluation points to their corresponding source term index.
-        # for i, address in enumerate(self.u_data_addresses):
-        #     self.u_inds[slice(*address)] = [i] * (address[1]-address[0])
+        # Standardize f_meshes and f_values
+        largest_integration_mesh_size = math.prod(self.constants.integration_mesh_sizes[-1])
+        logger.info(f"Standardizing integration mesh sizes to size: {largest_integration_mesh_size}.")
+        for i, (mesh, values) in enumerate(zip(self.f_meshes, self.f_values)):
+            current_mesh_size = mesh.shape[0]
+            self.f_meshes[i] = torch.nn.functional.pad(mesh, (0, 0, 0, largest_integration_mesh_size-current_mesh_size), mode="constant", value=0)
+            self.f_values[i] = torch.nn.functional.pad(values, (0, largest_integration_mesh_size-current_mesh_size, 0, 0), mode="constant", value=0)
         
+        self.f_meshes = torch.cat(self.f_meshes)
+        self.f_values = torch.cat(self.f_values)
+        #
+
         if subset_idx is not None:
             if subset_idx < self.u_length:
                 idxs = random.sample(range(0, self.u_length), subset_idx)
@@ -335,7 +343,7 @@ class GreenOneByOneBatchSampler(BatchSampler):
         self.batchsize = batchsize
 
     def __iter__(self):
-        for _ in range(0, len(self.sampler), self.batchsize):   # indices from sampler
+        for _ in range(0, len(self.sampler)):   # indices from sampler
             i = random.randint(0, self.num_mesh_sizes - 1)
             mesh_size_address = self.mesh_size_addresses[i]
             assert mesh_size_address[1] - mesh_size_address[0] >= self.batchsize, \
@@ -347,13 +355,13 @@ class GreenOneByOneBatchSampler(BatchSampler):
             yield batch
 
 
-def greens_pinn_dataset_obo_collate_fn(batch: list[DatasetReturnClass]) -> DatasetReturnClass:
+def greens_pinn_dataset_total_collate_fn(batch: list[DatasetReturnClass]) -> DatasetReturnClass:
     '''
     Collate function for the GreenPINNDataset in one by one fashion.
     '''
     crd = torch.stack([item.crd for item in batch])
     u_vals = torch.stack([item.u_vals for item in batch])
-    f_mesh_idx = batch[0].f_mesh_idx
+    f_mesh_idx = [item.f_mesh_idx for item in batch]
     f_vals = torch.stack([item.f_vals for item in batch])
     
     return DatasetReturnClass(crd=crd, u_vals=u_vals, f_mesh_idx=f_mesh_idx, f_vals=f_vals)

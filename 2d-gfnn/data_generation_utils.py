@@ -12,10 +12,7 @@ from random_utils import log_dict_as_json
 import matplotlib.pyplot as plt
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(name)s - %(levelname)s - %(message)s"
-    )
+
 logger = logging.getLogger(__name__)
 
 

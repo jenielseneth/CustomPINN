@@ -6,7 +6,7 @@ from PINN import CustomPINN_Green2D
 from PINN_2 import CustomPINN_Green2D_2
 from plot_utils import plot_multiple_points
 from data_generation_utils import sample_points
-from pde_utils import InferenceUtils, evaluate_greens_function_integral, chebyshev_inference
+from pde_utils import InferenceUtils, standardized_evaluate_greens_function_integral, chebyshev_inference
 from expr_generation_utils import expr_to_func, func_input_wrapper
 from dataset_utils import GreenPINNDataset
 from random_utils import find_line_with_keyword, retrieve_dict_from_json
@@ -57,7 +57,7 @@ for i in tqdm(range(num_data)):
 
     #Get approximated u(x) on data mesh
 
-    u_pred_data_mesh = evaluate_greens_function_integral(greens_function=model, 
+    u_pred_data_mesh = standardized_evaluate_greens_function_integral(greens_function=model, 
                                         evaluation_mesh=data_mesh,
                                         integration_mesh_values=f_values, 
                                         integration_meshes=test_data.constants.integration_mesh, 

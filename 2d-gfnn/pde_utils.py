@@ -1,3 +1,4 @@
+import math
 from typing import Tuple
 import torch
 from collections.abc import Callable
@@ -46,6 +47,44 @@ class InferenceUtils:
         self.quadrature_weights = [weights.to(device) for weights in self.quadrature_weights]
         # self.chebyshev_evaluation_mesh = self.chebyshev_evaluation_mesh.to(device)
 
+class StandardizedInferenceUtils:
+    '''
+    Experimental class to store features for training and inference.
+
+    Attributes:
+        chebyshev_evaluation_mesh (c x 2 Tensor): Tensor to store a chebyshev evaluation mesh for chebyshev inference.
+        cheb_interior_indices (c_i Tensor): stores the indices of the interior points of the chebyshev evaluation mesh.
+        cheb_boundary_indices (c_b Tensor): stores the indices of the boundary points of the chebyshev evaluation mesh.
+        quadrature_weights (q Tensor): stores the quadrature weights of our datasets integration mesh (not to be confused with the chebyshev evaluation mesh).
+    '''
+    def __init__(self, constants: GreensConstantsDataclass, config: Hyperparameters):
+        self.chebyshev_evaluation_meshes = []
+        self.constants = constants
+        for mesh_size in constants.evaluation_mesh_sizes:
+            assert type(mesh_size) == tuple and len(mesh_size) == 2, f"Evaluation mesh sizes must be tuples of length 2, got {mesh_size}."
+            assert constants.evaluation_mesh_type == "chebyshev", f"Not implemented yet for non chebyshev grids."
+            chebyshev_mesh_size = gcd_chebyshev_mesh_size(mesh_size)
+            self.chebyshev_evaluation_meshes.append(sample_points(constants.domain, chebyshev_mesh_size))
+
+        # self.cheb_interior_indices, self.cheb_boundary_indices = get_interior_boundary_idx(domain=constants.domain, mesh=self.chebyshev_evaluation_meshes)
+
+        if config.l_weights:
+            self.quadrature_weights = None
+        else:
+            self.quadrature_weights = [fetch_quadrature_weights(domain=constants.domain, 
+                                                           integration_mesh_size=mesh_size, 
+                                                           integration_mesh_type=constants.integration_mesh_type) for mesh_size in constants.integration_mesh_sizes]
+            
+            largest_mesh_size = math.prod(self.constants.integration_mesh_sizes[-1])
+            logger.info(f"Standardizing qudarture weights to size: {largest_mesh_size}")
+            for i, weights in enumerate(self.quadrature_weights):
+                self.quadrature_weights[i] = torch.nn.functional.pad(weights, (0, largest_mesh_size-len(weights)), mode="constant", value=0)
+            self.quadrature_weights = torch.stack(self.quadrature_weights)
+            
+    def to_device(self, device):
+        self.quadrature_weights = self.quadrature_weights.to(device)
+        # self.chebyshev_evaluation_mesh = self.chebyshev_evaluation_mesh.to(device)
+
 def u_laplacian_2d(greens_function: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
                  x: torch.Tensor, s: torch.Tensor, s_values: torch.Tensor, quadrature_weights: torch.Tensor):
     '''
@@ -63,7 +102,7 @@ def u_laplacian_2d(greens_function: Callable[[torch.Tensor, torch.Tensor], torch
     '''
     x.requires_grad = True
     s.requires_grad = True
-    u = evaluate_greens_function_integral(greens_function=greens_function, 
+    u = standardized_evaluate_greens_function_integral(greens_function=greens_function, 
                                           evaluation_mesh=x,
                                           integration_meshes=s,
                                           integration_mesh_values=s_values,
@@ -131,7 +170,7 @@ def greens_function_darcy_flow_operator_2d(greens_function: Callable[[torch.Tens
     s.requires_grad = False
     return lap
 
-def evaluate_greens_function_integral(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], 
+def standardized_evaluate_greens_function_integral(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], 
                                       evaluation_mesh: torch.Tensor, 
                                       integration_meshes: list[torch.Tensor],
                                       integration_mesh_values: list[torch.Tensor],
@@ -181,12 +220,22 @@ def evaluate_greens_function_integral(greens_function: Callable[[Tuple[float, fl
     else:
         raise ValueError("integration_mesh_values must be of either dimension 1 or 2.")
     
-    assert quadrature_weights.dim() == 1 and quadrature_weights.shape[0] == integration_mesh_values.shape[1], f"quadrature_weights {quadrature_weights.shape}) must be a f_size Tensor."
+    if quadrature_weights.dim() == 2:
+        assert quadrature_weights.shape[0] == evaluation_mesh.shape[0], f"If quadrature weights ({quadrature_weights.shape}) are of dim 2, they must have size b x f, and so must have the same size as evaluation_mesh ({evaluation_mesh.shape}) in dim 0."
+        assert quadrature_weights.shape[1] == integration_meshes.shape[1], f"If quadrature weights ({quadrature_weights.shape}) are of dim 2, they must have size b x f, and so must have the same size as integration_meshes ({integration_meshes.shape}) in dim 1."
+        weights = quadrature_weights
+    elif quadrature_weights.dim() == 1:
+        quadrature_weights.shape[0] == integration_mesh_values.shape[1], f"quadrature_weights {quadrature_weights.shape}) must be a f_size Tensor."
+        weights = quadrature_weights[None].expand(evaluation_mesh.shape[0], -1) if quadrature_weights is not None else quadrature_weights
+    else:
+        assert ValueError("quadrature_weights must be either 1 or 2.")
 
     x_input = evaluation_mesh[:, None, :].expand(-1, integration_meshes.shape[1], -1)  # b x f x 2 Tensor 
     s_input = integration_meshes # b x f x 2 Tensor
 
-    assert x_input.shape == s_input.shape and x_input.dim() == s_input.dim() == 3
+    assert x_input.shape == s_input.shape, f"x_input.shape ({x_input.shape}) and s_input.shape ({s_input.shape}) must be the same."
+    assert x_input.dim() == s_input.dim() == 3, f"x_input ({x_input.shape}) and s_input ({s_input.shape}) must be 3D."
+    assert weights.shape == x_input.shape[0:2], f"weights.shape ({weights.shape}) and x_input.shape[0:2] ({x_input.shape[0:2]}) must be the same."
 
     # pred = torch.zeros(evaluation_mesh.shape[0]).to(evaluation_mesh.device)  # b Tensor, to store the predictions
     # for i, point in enumerate(evaluation_mesh):
@@ -198,15 +247,17 @@ def evaluate_greens_function_integral(greens_function: Callable[[Tuple[float, fl
     #         # logger.info(f"{integral.shape}, {weights[u_to_f_mesh_idx[i]].shape}, {u_to_f_mesh_idx[i]}, {pred.shape}, {(integral * weights[u_to_f_mesh_idx[i]]).shape}")
     #         pred[i] = torch.sum(integral * weights[u_to_f_mesh_idx[i]], -1) # scalar Tensor
 
-    weights = quadrature_weights
+    # weights = quadrature_weights
 
     greens_function_eval = greens_function(x_input, s_input)
     integral = greens_function_eval*integration_mesh_values  # b x f Tensor
     if weights is not None:
-        integral = integral * weights[None, :]  # b x f Tensor, weights should be broadcasted
+        integral = integral * weights  # b x f Tensor, weights should be broadcasted
         assert integral.shape == (evaluation_mesh.shape[0], integration_mesh_values.shape[1]), f"integral shape {integral.shape} does not match expected shape ({evaluation_mesh.shape[0]}, {integration_mesh_values.shape[1]})."
     pred = torch.sum(integral, -1)  # b Tensor, sum over the f dimension
     return pred
+
+
 
 
 def chebyshev_inference(greens_function: Callable[[Tuple[float, float], Tuple[float, float]], float], 
@@ -221,7 +272,7 @@ def chebyshev_inference(greens_function: Callable[[Tuple[float, float], Tuple[fl
     '''
     assert type(boundary_condition) == float, "Currently only implemented for constant boundary conditions." 
     
-    u_pred_cheb = evaluate_greens_function_integral(greens_function=greens_function, 
+    u_pred_cheb = standardized_evaluate_greens_function_integral(greens_function=greens_function, 
                                         evaluation_mesh=inference_utils.chebyshev_evaluation_meshes,
                                         integration_mesh_values=integration_mesh_values,
                                         integration_meshes=dataset_constants.integration_mesh, 

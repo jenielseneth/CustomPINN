@@ -7,7 +7,12 @@ from torch.optim.lr_scheduler import StepLR
 from training_utils import GreensTrainer
 from dataset_utils import GreenPINNDataset
 from constants_utils import Hyperparameters
-from PINN import SIRENPINN, CustomPINN_Green2D, CustomPINN_Green2D_Fourier_Dot, CustomPINN_Green2D_PoissonExplicit_W_Log, CustomPINN_Green2D_PoissonExplicit, CustomPINN_Green2D_PoissonExplicit_Dot, SirenChannelMLP
+from PINN import (SIRENPINN_Explicit, 
+                  CustomPINN_Green2D, 
+                  CustomPINN_Green2D_Fourier_Dot, 
+                  CustomPINN_Green2D_PoissonExplicit_W_Log, 
+                  CustomPINN_Green2D_PoissonExplicit, 
+                  CustomPINN_Green2D_PoissonExplicit_Dot)
 from loss import MAPELoss
 from random_utils import retrieve_dict_from_json
 from tqdm import tqdm
@@ -36,8 +41,7 @@ if __name__ == "__main__":
         test_excl_boundary_points=False,
         train_subset_idx=40000,
         test_subset_idx=4000,
-        model_cls=CustomPINN_Green2D,
-        # model_params={"input_dim":4, "hidden_layers":[64, 64, 16], "output_dim": 1, "depth": 5},
+        model_cls=SIRENPINN_Explicit,
         model_params={"hidden_size":16, "num_layers":5},
         optimizer_cls=torch.optim.Adam,
         optimizer_params={"lr":1e-4, "weight_decay":0},
@@ -53,7 +57,8 @@ if __name__ == "__main__":
         boundary_loss_factor=1.0,
         device=torch.device("mps"),
         wandb_project_name=args.wandb if args.wandb else "test",
-        test_dir=args.td
+        test_dir=args.td,
+        multi_mesh_training_variant="standardize"
     )
 
     # User input for the folder from which we retrieve data..
@@ -95,14 +100,25 @@ if __name__ == "__main__":
         data_dir = main_dir + "data/"
 
         # Get Datasets
-        train_data = GreenPINNDataset(data_file_path=data_dir, data_file_name="data_train.pt", subset_idx=config.train_subset_idx)
+        train_data = GreenPINNDataset(data_file_path=data_dir,
+                                      data_file_name="data_train.pt", 
+                                      config=config, 
+                                      subset_idx=config.train_subset_idx)
         if config.train_excl_boundary_points:
             train_data.interior_points_dataset()
-        
+            
         if test_dir is not None:
-            test_data = GreenPINNDataset(data_file_path=test_data_dir, data_file_name="data_test.pt", subset_idx=config.test_subset_idx)
+            # Test on validation data from separate source.  
+            test_data = GreenPINNDataset(data_file_path=test_data_dir, 
+                                         data_file_name="data_test.pt",
+                                         config=config,  
+                                         subset_idx=config.test_subset_idx)
         else:
-            test_data = GreenPINNDataset(data_file_path=data_dir, data_file_name="data_test.pt", subset_idx=config.test_subset_idx)
+            test_data = GreenPINNDataset(data_file_path=data_dir, 
+                                         data_file_name="data_test.pt",
+                                         config=config,
+                                         subset_idx=config.test_subset_idx)
+            
         if config.test_excl_boundary_points:
             test_data.interior_points_dataset()
             

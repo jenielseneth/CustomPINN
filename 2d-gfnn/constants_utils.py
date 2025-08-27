@@ -8,6 +8,8 @@ import torch
 
 mesh_type = Literal["uniform", "chebyshev", "random"]
 
+multi_mesh_training_method = Literal["obo", "standardize"]
+
 class BoundaryPointLossParams(TypedDict):
     bnd_points_size : tuple
     domain_mesh_size : tuple
@@ -41,7 +43,8 @@ class Hyperparameters:
     num_runs: int = 1
     device: torch.device = torch.device("mps")
     wandb_project_name: str = "test",
-    test_dir: str | None = None
+    test_dir: str | None = None,
+    multi_mesh_training_variant: multi_mesh_training_method = "standardize"
 
     def __post_init__(self):
         if self.num_runs < 1:

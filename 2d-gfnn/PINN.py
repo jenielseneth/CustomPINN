@@ -593,9 +593,9 @@ class SirenChannelMLP(nn.Module):
         # Transpose back: [B, C_out, S] -> [B, S, C_out]
         return out_conv.transpose(1, 2)
     
-class SIRENPINN(nn.Module):
+class SIRENPINN_Explicit(nn.Module):
     def __init__(self, num_layers: int, hidden_size: Union[int, list[int]],):        
-        super(SIRENPINN, self).__init__()
+        super(SIRENPINN_Explicit, self).__init__()
         self.hidden_size = hidden_size
         # self.domain = domain
         # self.area = (domain[3]-domain[2])*(domain[1]-domain[0])
@@ -617,8 +617,8 @@ class SIRENPINN(nn.Module):
         phi = self.phi(x,y)
         psi = self.psi(x,y)
 
-        log_term = -1/(2*torch.pi)*torch.log((torch.sqrt(((x-y)**2).sum(-1)))).view(phi.shape)
-        val = (phi * log_term + psi)
+        log_term = torch.log((torch.sqrt(((x-y)**2).sum(-1)))).view(phi.shape)
+        val = (-1/(2*torch.pi)*log_term + psi)
         if area is not None:
             weight = (self.quadrature_weights(y)**2) / self.area
             val *= weight

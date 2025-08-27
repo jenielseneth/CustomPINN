@@ -50,8 +50,8 @@ if __name__ == "__main__":
         u_test_mesh_sizes = [(8, 8), (12, 12), (20, 20)]
         # u_test_mesh_sizes = [(20, 20)]
         f_mesh_type: mesh_type = "chebyshev"
-        f_mesh_sizes = [(4,4), (6,6), (9,9), (13,13), (16,16), (18,18), (21,21)]
-        f_mesh_sizes = [(7,7)]
+        f_mesh_sizes = [(13,13), (16,16), (18,18), (21,21), (24,24), (28, 28), (32, 32)]
+        # f_mesh_sizes = [(7,7)]
         mesh_size_tuples = []
 
 

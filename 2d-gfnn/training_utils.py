@@ -11,12 +11,12 @@ from chebyshev_utils import cheb_2d_impl
 import wandb
 from data_generation_utils import sample_points, gcd_chebyshev_mesh_size
 from plot_utils import plot_points
-from pde_utils import InferenceUtils, StandardizedInferenceUtils, standardized_evaluate_greens_function_integral, greens_function_laplacian_2d, u_laplacian_2d
+from pde_utils import InferenceUtils, StandardizedInferenceUtils, evaluate_greens_function_integral, greens_function_laplacian_2d, u_laplacian_2d
 from datetime import datetime
 from dataset_utils import (GreenOneByOneBatchSampler,
                            GreenPINNDataset, 
                            get_non_corners_mesh, 
-                           get_corners_idx, 
+                           get_corners_idx, greens_pinn_dataset_obo_collate_fn, 
                            greens_pinn_dataset_total_collate_fn, 
                            DatasetReturnClass, )
 from constants_utils import BoundaryPointLossParams, Hyperparameters
@@ -97,32 +97,53 @@ class GreensTrainer:
         self.boundary_loss_fn = boundary_loss_fn if boundary_loss_fn is not None else self.train_loss_fn
         self.test_loss_fn = test_loss_fn if isinstance(test_loss_fn, list) else [test_loss_fn]
         self.training_data = training_data
-        self.train_f_meshes = self.training_data.f_meshes.to(self.device)
         self.test_data = test_data
-        self.test_f_meshes = self.test_data.f_meshes.to(self.device)
-        # training_batch_sampler = GreenOneByOneBatchSampler(
-        #     sampler=range(len(self.training_data)), 
-        #     batchsize=self.config.training_batch_size, 
-        #     drop_last=True, 
-        #     mesh_size_addresses=self.training_data.mesh_addresses
-        # )
 
-        self.trainloader = DataLoader(
-            self.training_data,
-            collate_fn=greens_pinn_dataset_total_collate_fn,
-            batch_size=self.config.training_batch_size,
-            shuffle=True
-        )
+        # --- Depending on Training Variant initialize Dataloader and F Meshes ---
+        if self.config.multi_mesh_training_variant == "obo":
+            self.train_f_meshes = [mesh.to(self.device) for mesh in self.training_data.f_meshes]
+            self.test_f_meshes = [mesh.to(self.device) for mesh in self.test_data.f_meshes]
+
+            training_batch_sampler = GreenOneByOneBatchSampler(
+                sampler=range(len(self.training_data)), 
+                batchsize=self.config.training_batch_size, 
+                drop_last=True, 
+                mesh_size_addresses=self.training_data.mesh_addresses
+            )
+
+            self.trainloader = DataLoader(
+                self.training_data,
+                collate_fn=greens_pinn_dataset_obo_collate_fn,
+                batch_sampler=training_batch_sampler
+            )
+            
+            test_batch_sampler = GreenOneByOneBatchSampler(sampler=range(len(self.test_data)), batchsize=self.config.test_batch_size, 
+                                                       drop_last=True, mesh_size_addresses=self.test_data.mesh_addresses)
+            self.testloader  = DataLoader(self.test_data, 
+                                        collate_fn=greens_pinn_dataset_obo_collate_fn,
+                                        batch_sampler=test_batch_sampler
+                                        )
+            self.train_inference_utils = InferenceUtils(constants=self.training_data.constants, config=config)
+            self.test_inference_utils = InferenceUtils(constants=self.test_data.constants, config=config)
         
-        # test_batch_sampler = GreenOneByOneBatchSampler(sampler=range(len(self.test_data)), batchsize=self.config.test_batch_size, 
-        #                                            drop_last=True, mesh_size_addresses=self.test_data.mesh_addresses)
-        self.testloader  = DataLoader(self.test_data, 
-                                     collate_fn=greens_pinn_dataset_total_collate_fn,
-                                    batch_size=self.config.test_batch_size,
-                                    shuffle=True
-                                    )
-        self.train_inference_utils = StandardizedInferenceUtils(constants=self.training_data.constants, config=config)
-        self.test_inference_utils = StandardizedInferenceUtils(constants=self.test_data.constants, config=config)
+        elif self.config.multi_mesh_training_variant == "standardize":
+            self.train_f_meshes = self.training_data.f_meshes.to(self.device)
+            self.test_f_meshes = self.test_data.f_meshes.to(self.device)
+
+            self.trainloader = DataLoader(
+                self.training_data,
+                collate_fn=greens_pinn_dataset_total_collate_fn,
+                batch_size=self.config.training_batch_size,
+                shuffle=True
+            )
+            self.testloader  = DataLoader(self.test_data, 
+                                        collate_fn=greens_pinn_dataset_total_collate_fn,
+                                        batch_size=self.config.test_batch_size,
+                                        shuffle=True
+                                        )
+            self.train_inference_utils = StandardizedInferenceUtils(constants=self.training_data.constants, config=config)
+            self.test_inference_utils = StandardizedInferenceUtils(constants=self.test_data.constants, config=config)
+    
         self.boundary_loss = config.boundary_loss
 
         # Temporary solution to calculate boundary points at each epoch to guarantee boundary loss is calculated.
@@ -141,7 +162,6 @@ class GreensTrainer:
         self.training_data.constants.to_device(self.device)
         self.test_data.constants.to_device(self.device)
 
-
     def _train(self, model: torch.nn.Module, optimizer: torch.optim.Optimizer) -> torch.Tensor: 
         size = len(self.trainloader.dataset)
         model.train()
@@ -149,29 +169,27 @@ class GreensTrainer:
         total_loss = 0
         total_prediction_loss = 0
         total_harmonic_psi_loss = 0
-        # total_harmonic_u_loss = 0
         total_boundary_loss = 0
+        # total_harmonic_u_loss = 0
         
         for i, item in tqdm(enumerate(self.trainloader), desc="Training", total=len(self.trainloader), leave=False, ascii=' >='):
             # Check if training data has excluded boundary points and remove corner points accordingly
-            if self.config.train_excl_boundary_points == False:
-                n_c, _ = get_corners_idx(domain=self.training_data.constants.domain, mesh=item.crd)
-                evaluation_mesh = item.crd[n_c].to(self.device)
-                u_gt = item.u_vals[n_c].to(self.device)
-                integration_mesh_values = item.f_vals[n_c].to(self.device)
-                integration_meshes = self.train_f_meshes[item.f_mesh_idx][n_c].to(self.device)
-                quadrature_weights = self.train_inference_utils.quadrature_weights[item.f_mesh_idx][n_c]
-            else:
-                evaluation_mesh = item.crd.to(self.device)
-                u_gt = item.u_vals.to(self.device)
-                integration_mesh_values = item.f_vals.to(self.device)
-                integration_meshes = self.train_f_meshes[item.f_mesh_idx].to(self.device)
-                quadrature_weights = self.train_inference_utils.quadrature_weights[item.f_mesh_idx]
+            n_c = slice(None) if self.config.train_excl_boundary_points == True else get_corners_idx(domain=self.training_data.constants.domain, mesh=item.crd)[0]
+            evaluation_mesh = item.crd[n_c].to(self.device)
+            u_gt = item.u_vals[n_c].to(self.device)
+            integration_mesh_values = item.f_vals[n_c].to(self.device)
 
+            if self.config.multi_mesh_training_variant =="standardize":
+                integration_meshes = self.train_f_meshes[item.f_mesh_idx][n_c]
+                quadrature_weights = self.train_inference_utils.quadrature_weights[item.f_mesh_idx][n_c]
+
+            elif self.config.multi_mesh_training_variant == "obo":
+                integration_meshes = self.train_f_meshes[item.f_mesh_idx]
+                quadrature_weights = self.train_inference_utils.quadrature_weights[item.f_mesh_idx]
 
             ### COMPUTE PREDICTION AND LOSS
             # Compute ||∫G(x,y)f(y)dy - u(x)||
-            u_prediction = standardized_evaluate_greens_function_integral(greens_function=model, integration_mesh_values=integration_mesh_values, 
+            u_prediction = evaluate_greens_function_integral(greens_function=model, integration_mesh_values=integration_mesh_values, 
                                                              evaluation_mesh=evaluation_mesh, integration_meshes=integration_meshes, 
                                                              quadrature_weights=quadrature_weights)
             
@@ -180,7 +198,7 @@ class GreensTrainer:
             loss = prediction_loss
             # Calculate boundary loss ||G(x,y) - boundary conditions||
             if self.boundary_loss == True:
-                greens_function_boundary_eval = model(self.bnd_points[:, None, :].expand(-1, integration_meshes.shape[1] ,-1), 
+                greens_function_boundary_eval = model(self.bnd_points[:, None, :].expand(-1, self.train_f_meshes[-1].shape[0] ,-1), 
                                                       self.train_f_meshes[-1].expand(self.bnd_points.shape[0], -1, -1))
                 boundary_loss = self.boundary_loss_fn(greens_function_boundary_eval, torch.zeros_like(greens_function_boundary_eval))
                 loss += self.config.boundary_loss_factor * boundary_loss
@@ -190,7 +208,6 @@ class GreensTrainer:
 
             # Temporary solution to calculate the Laplacian of Psi(x, y) for Poisson equation.
             if self.config.harmonic_psi_loss:
-                
                 # Define the psi function to be used for the harmonic loss.
                 def psi(x, s):
                     # Expand x and s to match the expected input shape
@@ -269,19 +286,18 @@ class GreensTrainer:
         for item in self.testloader:
             #Temporary solution to avoid calculating on corners 
 
-            # Check if test data has excluded boundary points
-            if not self.config.test_excl_boundary_points:
-                n_c, _ = get_corners_idx(domain=self.training_data.constants.domain, mesh=item.crd)
-                evaluation_mesh = item.crd[n_c].to(self.device)
-                u_gt = item.u_vals[n_c].to(self.device)
-                integration_mesh_values = item.f_vals[n_c].to(self.device)
-                integration_meshes = self.test_f_meshes[item.f_mesh_idx][n_c].to(self.device)
+            # Check if training data has excluded boundary points and remove corner points accordingly
+            n_c = slice(None) if self.config.test_excl_boundary_points == True else get_corners_idx(domain=self.test_data.constants.domain, mesh=item.crd)[0]
+            evaluation_mesh = item.crd[n_c].to(self.device)
+            u_gt = item.u_vals[n_c].to(self.device)
+            integration_mesh_values = item.f_vals[n_c].to(self.device)
+
+            if self.config.multi_mesh_training_variant =="standardize":
+                integration_meshes = self.train_f_meshes[item.f_mesh_idx][n_c]
                 quadrature_weights = self.train_inference_utils.quadrature_weights[item.f_mesh_idx][n_c]
-            else:
-                evaluation_mesh = item.crd.to(self.device)
-                u_gt = item.u_vals.to(self.device)
-                integration_mesh_values = item.f_vals.to(self.device)
-                integration_meshes = self.test_f_meshes[item.f_mesh_idx].to(self.device)
+
+            elif self.config.multi_mesh_training_variant == "obo":
+                integration_meshes = self.train_f_meshes[item.f_mesh_idx]
                 quadrature_weights = self.train_inference_utils.quadrature_weights[item.f_mesh_idx]
 
             if self.config.harmonic_psi_loss:
@@ -309,7 +325,7 @@ class GreensTrainer:
 
             with torch.no_grad():
                 # Prediction loss
-                u_prediction = standardized_evaluate_greens_function_integral(greens_function=model, integration_mesh_values=integration_mesh_values, 
+                u_prediction = evaluate_greens_function_integral(greens_function=model, integration_mesh_values=integration_mesh_values, 
                                                              evaluation_mesh=evaluation_mesh, integration_meshes=integration_meshes, 
                                                              quadrature_weights=quadrature_weights,)
                 prediction_loss = torch.tensor([loss_fn(u_prediction, u_gt) for loss_fn in self.test_loss_fn], device=self.device)
@@ -317,7 +333,7 @@ class GreensTrainer:
                 
                 if self.boundary_loss == True:
                 # Boundary loss ||G(x,y) - boundary conditions||
-                    greens_function_boundary_eval = model(self.bnd_points[:, None, :].expand(-1, integration_meshes.shape[1] ,-1), 
+                    greens_function_boundary_eval = model(self.bnd_points[:, None, :].expand(-1, self.train_f_meshes[-1].shape[0] ,-1), 
                                                         self.train_f_meshes[-1].expand(self.bnd_points.shape[0], -1, -1))
                     boundary_loss = torch.tensor([loss_fn(greens_function_boundary_eval, torch.zeros_like(greens_function_boundary_eval)) for loss_fn in self.test_loss_fn], device=self.device)
                 else:
@@ -331,8 +347,6 @@ class GreensTrainer:
             tqdm.write(f"Avg Test Loss {self.test_loss_fn[i]} per sample: {tl / size :>8f} \n", end="")
         return test_loss, total_prediction_loss, total_harmonic_psi_loss, total_boundary_loss
     
-
-
     def run(self, directory: list[str] | str):
         '''
         Runs the training and testing loops.
@@ -405,9 +419,11 @@ class GreensTrainer:
                     tqdm.write(f"Running trainer in run: {i_run}.")
 
                 # Loop through the epochs and train the model.
+                train_fn = self._train
+                test_fn = self._test
                 for epoch in tqdm(range(self.config.num_epochs), desc="Epochs", leave=False):
-                    train_loss, train_prediction_loss, train_boundary_loss, train_harmonic_psi_loss = self._train(model=model, optimizer=optimizer)
-                    test_loss, test_prediction_loss, test_harmonic_psi_loss, test_boundary_loss  = self._test(model)
+                    train_loss, train_prediction_loss, train_boundary_loss, train_harmonic_psi_loss = train_fn(model=model, optimizer=optimizer)
+                    test_loss, test_prediction_loss, test_harmonic_psi_loss, test_boundary_loss  = test_fn(model)
 
                     if scheduler is not None:
                         scheduler.step()

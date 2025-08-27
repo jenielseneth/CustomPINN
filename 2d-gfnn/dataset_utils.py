@@ -3,6 +3,7 @@ import math
 from typing import Iterable, TypeVar, Generic
 import torch
 from torch.utils.data import Dataset, DataLoader, BatchSampler
+from constants_utils import Hyperparameters
 from tqdm import tqdm
 from plot_utils import plot_points
 from constants_utils import mesh_type
@@ -134,7 +135,11 @@ class GreenPINNDataset(Dataset):
         self.sub_lengths (list[tuple]): List of tuples containing the start and end indices of each subdataset for a given source term f.
     
     '''
-    def __init__(self, data_file_path, data_file_name: str, subset_idx: int = None):
+    def __init__(self, 
+                 data_file_path: str, 
+                 data_file_name: str, 
+                 config: Hyperparameters, 
+                 subset_idx: int = None):
         data = torch.load(data_file_path + data_file_name)
 
         self.constants = GreensConstantsDataclass(
@@ -163,17 +168,20 @@ class GreenPINNDataset(Dataset):
             self.num_f_terms.append(start)
             start += n
 
-        # Standardize f_meshes and f_values
-        largest_integration_mesh_size = math.prod(self.constants.integration_mesh_sizes[-1])
-        logger.info(f"Standardizing integration mesh sizes to size: {largest_integration_mesh_size}.")
-        for i, (mesh, values) in enumerate(zip(self.f_meshes, self.f_values)):
-            current_mesh_size = mesh.shape[0]
-            self.f_meshes[i] = torch.nn.functional.pad(mesh, (0, 0, 0, largest_integration_mesh_size-current_mesh_size), mode="constant", value=-1)
-            self.f_values[i] = torch.nn.functional.pad(values, (0, largest_integration_mesh_size-current_mesh_size, 0, 0), mode="constant", value=-1)
-        
-        self.f_meshes = torch.stack(self.f_meshes)
-        self.f_values = torch.stack(self.f_values)
-        #
+        self.config = config
+
+        if self.config.multi_mesh_training_variant == "standardize":
+            # Standardize f_meshes and f_values
+            largest_integration_mesh_size = math.prod(self.constants.integration_mesh_sizes[-1])
+            logger.info(f"Standardizing integration mesh sizes to size: {largest_integration_mesh_size}.")
+            for i, (mesh, values) in enumerate(zip(self.f_meshes, self.f_values)):
+                current_mesh_size = mesh.shape[0]
+                self.f_meshes[i] = torch.nn.functional.pad(mesh, (0, 0, 0, largest_integration_mesh_size-current_mesh_size), mode="constant", value=-1)
+                self.f_values[i] = torch.nn.functional.pad(values, (0, largest_integration_mesh_size-current_mesh_size, 0, 0), mode="constant", value=-1)
+            
+            self.f_meshes = torch.stack(self.f_meshes)
+            self.f_values = torch.stack(self.f_values)
+            #
 
         if subset_idx is not None:
             if subset_idx < self.u_length:
@@ -251,33 +259,6 @@ class GreenPINNDataset(Dataset):
         '''
         plot_points(points=self.constants.integration_mesh)
 
-    # def get_f_mesh(self, u_idx: int | list[int]) -> list[torch.Tensor]:
-    #     '''
-    #     Returns the f_mesh for the given index of a u coordinate point.
-    #     '''
-    #     idx = self.u_to_f_mesh_idx[u_idx] # Get the index of the corresponding f_mesh for the given u coordinate point.
-    #     if type(idx) == list:
-    #         raise NotImplementedError("Not implemented yet for lists.")
-    #         f_meshes = [self.f_meshes[i] for i in idx]
-    #     else:
-    #         f_meshes = self.f_meshes[idx]
-        
-    #     return f_meshes # (len(u_idx) x f_mesh_size x 2) Tensor of the source term mesh.
-    
-    # def get_f_values(self, u_idx: int | list[int]) -> list[torch.Tensor]:
-    #     '''
-    #     Returns the f_values for the given index of a u coordinate point.
-    #     '''
-    #     mesh_idx = self.u_to_f_mesh_idx[u_idx] # Get the index of the source term for the given u coordinate point.
-    #     value_idx = self.u_point_to_expr_idx[u_idx] # Get the index of the source term for the given u coordinate point.
-
-    #     if type(u_idx) == list:
-    #         raise NotImplementedError("Not implemented yet for lists.")
-    #         f_values = [self.f_values[idx][value_idx[i]] for i, idx in enumerate(mesh_idx)]
-    #     else:
-    #         f_values = self.f_values[mesh_idx][value_idx]
-    #     return f_values # (len(u_idx) x f_mesh_size) Tensor of the source term mesh.
-
     def __len__(self):
         # return total dataset size
         return self.u_length
@@ -344,7 +325,7 @@ class GreenOneByOneBatchSampler(BatchSampler):
         self.batchsize = batchsize
 
     def __iter__(self):
-        for _ in range(0, len(self.sampler)):   # indices from sampler
+        for _ in range(0, len(self.sampler), self.batchsize):   # indices from sampler
             i = random.randint(0, self.num_mesh_sizes - 1)
             mesh_size_address = self.mesh_size_addresses[i]
             assert mesh_size_address[1] - mesh_size_address[0] >= self.batchsize, \
@@ -363,6 +344,17 @@ def greens_pinn_dataset_total_collate_fn(batch: list[DatasetReturnClass]) -> Dat
     crd = torch.stack([item.crd for item in batch])
     u_vals = torch.stack([item.u_vals for item in batch])
     f_mesh_idx = [item.f_mesh_idx for item in batch]
+    f_vals = torch.stack([item.f_vals for item in batch])
+    
+    return DatasetReturnClass(crd=crd, u_vals=u_vals, f_mesh_idx=f_mesh_idx, f_vals=f_vals)
+
+def greens_pinn_dataset_obo_collate_fn(batch: list[DatasetReturnClass]) -> DatasetReturnClass:
+    '''
+    Collate function for the GreenPINNDataset in one by one fashion.
+    '''
+    crd = torch.stack([item.crd for item in batch])
+    u_vals = torch.stack([item.u_vals for item in batch])
+    f_mesh_idx = batch[0].f_mesh_idx
     f_vals = torch.stack([item.f_vals for item in batch])
     
     return DatasetReturnClass(crd=crd, u_vals=u_vals, f_mesh_idx=f_mesh_idx, f_vals=f_vals)

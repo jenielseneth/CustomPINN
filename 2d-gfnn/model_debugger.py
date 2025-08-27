@@ -1,4 +1,5 @@
 import os
+from ngsolve import *
 import torch
 import random
 from tqdm import tqdm
@@ -9,16 +10,13 @@ from constants_utils import Hyperparameters, mesh_type
 from dataset_utils import GreenPINNDataset, get_corners_idx, get_non_corners_mesh, get_interior_mesh
 from plot_utils import plot_multiple_points
 from data_generation_utils import sample_points
-from pde_utils import standardized_evaluate_greens_function_integral, greens_function_laplacian_2d, u_laplacian_2d, StandardizedInferenceUtils
+from pde_utils import InferenceUtils, evaluate_greens_function_integral, greens_function_laplacian_2d, u_laplacian_2d, StandardizedInferenceUtils
 from expr_generation_utils import expr_to_func, func_input_wrapper
 from random_utils import find_line_with_keyword, retrieve_dict_from_json
 from loss import fetch_quadrature_weights
 from debugging_utils import check_poisson_2d_harmonic_func, plot_fundamentals, plot_greens_function_animation
 import argparse
 import logging
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 def harmonic_func_plotter():
     '''
@@ -96,7 +94,7 @@ def sample_problems_plotter():
 
         quadrature_weights = inference_utils.quadrature_weights[f_m_i]
 
-        approx_values.append(standardized_evaluate_greens_function_integral(greens_function=model, 
+        approx_values.append(evaluate_greens_function_integral(greens_function=model, 
                                                                evaluation_mesh=crd, 
                                                                integration_mesh_values=f_values,
                                                                integration_meshes=f_mesh, 
@@ -128,6 +126,83 @@ def sample_problems_plotter():
                     log_info="Sample loss L = L₁ + L₂ + L₃ = " + f"{(mse(u_gt[0], approx_values[0]) + mse(u_gt[1], approx_values[1]) + mse(u_gt[2], approx_values[2])).item():.10f}",
                     figsize=(12, 10),
                     show=show)
+
+def quadrature_rule_debugger():
+    '''
+    Checks quadrature rule approximation for varying resolutions.
+    '''
+
+    # ---- 1. Calculate for a randomly generated problem the f_values for different f_mesh resolutions, 
+    #   along with the ground-truth u(x) values for a set of evaluation points. ----
+    f_mesh_points = []
+    
+    # Assure f_mesh_points are of original size and have no padding
+    for i, mesh in enumerate(test_data.f_meshes):
+        f_mesh_points.append(mesh[:math.prod(test_data.constants.integration_mesh_sizes[i])])
+
+    f_mesh_values = []
+
+    mesh = Mesh(unit_square.GenerateMesh(maxh=0.2))
+
+    # H1-conforming finite element space
+    fes = H1(mesh, order=3, dirichlet=[1,2,3,4])
+
+    # define trial- and test-functions
+    u = fes.TrialFunction()
+    v = fes.TestFunction()
+
+    # the bilinear-form 
+    a = BilinearForm(fes, symmetric=True)
+    a += grad(u)*grad(v)*dx
+    a.Assemble()
+
+    f = LinearForm(fes)
+    coeff_a = random.uniform(1, 10)
+    sigma_x = random.uniform(0.01, 0.5)
+    sigma_y = random.uniform(0.01, 0.5)
+    mean_x = random.uniform(domain[0], domain[1])
+    mean_y = random.uniform(domain[2], domain[3])
+
+    cf = CoefficientFunction(coeff_a*exp(-((x-mean_x)**2 / (2*sigma_x**2) + (y-mean_y)**2 / (2*sigma_y**2))))
+
+    for points in f_mesh_points:
+        integration_values = []
+        for point in points:
+            integration_values.append(cf(mesh(*point)))
+        integration_values = torch.tensor(integration_values)
+        f_mesh_values.append(integration_values)
+
+    f += cf * v * dx
+    f.Assemble()
+
+    gfu = GridFunction(fes)
+    gfu.vec.data = a.mat.Inverse(fes.FreeDofs(), inverse="sparsecholesky") * f.vec
+    
+    eval_points = get_interior_mesh(domain=test_data.constants.domain, 
+                                    mesh=sample_points(test_data.constants.domain,
+                                mesh_size=test_data.constants.evaluation_mesh_sizes[-1],
+                                mesh_type=test_data.constants.evaluation_mesh_type))
+    gt_values = []
+    for point in eval_points:
+        mesh_point = mesh(*point)
+        gt_values.append(gfu(mesh_point))
+
+    gt_values = torch.tensor(gt_values)
+
+    #--- 2. Calculate using the given model the approximation given the different resolutions for a given quadrature rule. ----
+    u_approx_values = []
+    for i, (points, values) in enumerate(zip(f_mesh_points, f_mesh_values)):
+        u_approx = evaluate_greens_function_integral(greens_function=model,
+                                      evaluation_mesh=eval_points,
+                                      integration_meshes=points,
+                                      integration_mesh_values=values,
+                                      quadrature_weights=test_inference_utils.quadrature_weights[i])
+        u_approx_values.append(u_approx)
+    u_approx_values = torch.stack(u_approx_values)
+    logger.info("Quadrature rule debugger - approximating ground truth solution for varying integration mesh resolutions...")
+    for i, mesh in enumerate(f_mesh_points):
+        logger.info(f"For f_mesh of size ({mesh.shape}), MSELoss of u_gt compared against u_approx = {torch.nn.functional.mse_loss(u_approx_values[i], gt_values)}")
+        
 
 
 def harmonic_loss_debugger():
@@ -164,9 +239,7 @@ def harmonic_loss_debugger():
         gt = sample_gt.u_vals[non_corner_idx]
         f_mesh = global_f_meshes[f_m_i]
         f_values = sample_gt.f_vals[non_corner_idx]
-        quadrature_weights = fetch_quadrature_weights(domain=domain,
-                                                    integration_mesh_size=test_data.constants.integration_mesh_sizes[f_m_i], 
-                                                    integration_mesh_type=test_data.constants.integration_mesh_type)
+        quadrature_weights = test_inference_utils.quadrature_weights[f_m_i]
         gt_eval_meshes.append(crd)
         u_gt.append(gt)
 
@@ -368,6 +441,13 @@ def int_mesh_gf_anim_plotter():
 
 
 if __name__ == "__main__":
+
+    # Set logging format.
+    logging.basicConfig(level=logging.INFO,
+    format="%(filename)s:%(lineno)d - %(levelname)s - %(message)s")
+    logger = logging.getLogger(__name__)
+
+    # Set parser flags.
     anims = {
     'diag': gf_diagonal_anim_plotter,
     'bound': gf_boundary_anim_plotter,
@@ -384,7 +464,9 @@ if __name__ == "__main__":
     
     debuggers = {
         "u_harm": harmonic_loss_debugger,
-        "psi_harm": psi_harmonic_loss_debugger
+        "psi_harm": psi_harmonic_loss_debugger,
+        "quad": quadrature_rule_debugger
+
     }
 
     tasks = {
@@ -423,9 +505,13 @@ if __name__ == "__main__":
 
         config_dict = retrieve_dict_from_json(model_dir + "config.json")
         config = Hyperparameters(**config_dict)
+
         if config.test_dir is not None:
             data_dir = "./res/" + config.test_dir + "/data/"
-        test_data = GreenPINNDataset(data_file_path=data_dir, data_file_name="data_test.pt")
+        test_data = GreenPINNDataset(data_file_path=data_dir, 
+                                     config=config,
+                                     data_file_name="data_test.pt")
+        test_inference_utils = StandardizedInferenceUtils(constants=test_data.constants, config=config) if config.multi_mesh_training_variant == "standardize" else InferenceUtils(constants=test_data.constants, config=config)
         global_f_meshes = test_data.f_meshes
         domain = test_data.constants.domain
 

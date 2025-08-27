@@ -97,9 +97,9 @@ class GreensTrainer:
         self.boundary_loss_fn = boundary_loss_fn if boundary_loss_fn is not None else self.train_loss_fn
         self.test_loss_fn = test_loss_fn if isinstance(test_loss_fn, list) else [test_loss_fn]
         self.training_data = training_data
-        self.train_f_meshes = [mesh.to(self.device) for mesh in self.training_data.f_meshes]
+        self.train_f_meshes = self.training_data.f_meshes.to(self.device)
         self.test_data = test_data
-        self.test_f_meshes = [mesh.to(self.device) for mesh in self.test_data.f_meshes]
+        self.test_f_meshes = self.test_data.f_meshes.to(self.device)
         # training_batch_sampler = GreenOneByOneBatchSampler(
         #     sampler=range(len(self.training_data)), 
         #     batchsize=self.config.training_batch_size, 
@@ -159,13 +159,13 @@ class GreensTrainer:
                 evaluation_mesh = item.crd[n_c].to(self.device)
                 u_gt = item.u_vals[n_c].to(self.device)
                 integration_mesh_values = item.f_vals[n_c].to(self.device)
-                integration_meshes = torch.stack([self.train_f_meshes[idx] for idx in item.f_mesh_idx])[n_c].to(self.device)
+                integration_meshes = self.train_f_meshes[item.f_mesh_idx][n_c].to(self.device)
                 quadrature_weights = self.train_inference_utils.quadrature_weights[item.f_mesh_idx][n_c]
             else:
                 evaluation_mesh = item.crd.to(self.device)
                 u_gt = item.u_vals.to(self.device)
                 integration_mesh_values = item.f_vals.to(self.device)
-                integration_meshes = torch.stack([self.train_f_meshes[idx] for idx in item.f_mesh_idx]).to(self.device)
+                integration_meshes = self.train_f_meshes[item.f_mesh_idx].to(self.device)
                 quadrature_weights = self.train_inference_utils.quadrature_weights[item.f_mesh_idx]
 
 
@@ -204,7 +204,7 @@ class GreensTrainer:
                 harmonic_psi_term = greens_function_laplacian_2d(
                     greens_function=psi,
                     x=evaluation_mesh[0:4], 
-                    s=self.training_data.constants.integration_mesh
+                    s=self.train_f_meshes[-1]
                     )
                 harmonic_psi_loss = (harmonic_psi_term**2).mean()
                 loss += self.config.harmonic_psi_loss_factor * harmonic_psi_loss
@@ -275,13 +275,13 @@ class GreensTrainer:
                 evaluation_mesh = item.crd[n_c].to(self.device)
                 u_gt = item.u_vals[n_c].to(self.device)
                 integration_mesh_values = item.f_vals[n_c].to(self.device)
-                integration_meshes = torch.stack([self.train_f_meshes[idx] for idx in item.f_mesh_idx])[n_c].to(self.device)
+                integration_meshes = self.test_f_meshes[item.f_mesh_idx][n_c].to(self.device)
                 quadrature_weights = self.train_inference_utils.quadrature_weights[item.f_mesh_idx][n_c]
             else:
                 evaluation_mesh = item.crd.to(self.device)
                 u_gt = item.u_vals.to(self.device)
                 integration_mesh_values = item.f_vals.to(self.device)
-                integration_meshes = torch.stack([self.train_f_meshes[idx] for idx in item.f_mesh_idx]).to(self.device)
+                integration_meshes = self.test_f_meshes[item.f_mesh_idx].to(self.device)
                 quadrature_weights = self.train_inference_utils.quadrature_weights[item.f_mesh_idx]
 
             if self.config.harmonic_psi_loss:
@@ -300,7 +300,7 @@ class GreensTrainer:
                 harmonic_psi_term = greens_function_laplacian_2d(
                     greens_function=psi,
                     x=evaluation_mesh[0:4], 
-                    s=self.training_data.constants.integration_mesh
+                    s=self.test_f_meshes[-1]
                     )
                 harmonic_psi_loss = torch.tensor([loss_fn(harmonic_psi_term, torch.zeros_like(harmonic_psi_term)) for loss_fn in self.test_loss_fn], device=self.device)
             else:

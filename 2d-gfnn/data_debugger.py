@@ -14,6 +14,20 @@ logger = logging.getLogger(__name__)
 
 def data_visualiser():
     train_data = GreenPINNDataset(data_file_path=data_dir, data_file_name="data_train.pt")
+
+
+    num=3
+    if len(test_data.f_meshes) < num:
+        random_f_mesh_idx = random.choices(range(0, len(test_data.f_meshes)), k=num)
+    elif len(test_data.f_meshes) == num:
+        random_f_mesh_idx = range(0, num)
+    else:
+        random_f_mesh_idx = random.sample(range(0, len(test_data.f_meshes)), num)
+    random_f_values_idx = [random.sample(range(0, len(test_data.f_values[idx])), 1)[0] for idx in random_f_mesh_idx]
+    approx_values = []
+    u_gt = []
+    eval_points = []
+    
     num_f_terms = train_data.num_f_terms
     sample_1 = train_data[slice(*train_data.u_data_addresses[num_f_terms[2]])]
     sample_2 = train_data[slice(*train_data.u_data_addresses[num_f_terms[3]])]
@@ -96,10 +110,7 @@ if __name__ == "__main__":
     
     if args.all:
         for key, func in tqdm(tasks.items(), "Running all tests..."):
-            if not key == "harm":
-                func(args.show)
-            else: 
-                func()
+            func()
 
     if args.run is not None:
         for task_key in args.run:

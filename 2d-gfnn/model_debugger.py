@@ -209,6 +209,8 @@ def harmonic_loss_debugger():
                         axs_size=(3,4),
                         main_title="-∆u = f Debugger",
                         figsize=(18, 10),
+                        save_dir=figure_dir,
+                        save_name="HarmonicLossDebugger",
                         log_info=f"L = L₁ + L₂ {f" + {config.harmonic_psi_loss_factor}L₃" if config.harmonic_psi_loss else ""} {f"+ {config.optimizer_params['weight_decay']}||w||²₂" if not config.optimizer_params["weight_decay"] == 0 else "" }",
                         )
     print(f"Loss of ||∆u-f|| is: {loss.item():.10f}")

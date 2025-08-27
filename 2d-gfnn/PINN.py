@@ -1,4 +1,6 @@
 
+import math
+from typing import Union
 import torch.nn as nn
 import torch
 
@@ -9,24 +11,24 @@ class PINN_NN(nn.Module):
         self.norms = nn.ModuleList()
         self.dropout = nn.ModuleList()
         self.layer_num = num_layers
-        for i in range(self.layer_num):
+        if isinstance(hidden_size, int):
+            hidden_size = [hidden_size for _ in range(self.layer_num-2)]
+        else:
+            assert len(hidden_size) == self.layer_num-2
+        for i in range(self.layer_num-1):
+                
             if self.layer_num == 1:
                 lin = nn.Linear(input_size, output_size)
                 self.layers.append(lin)
             elif i == 0:
-                lin = nn.Linear(input_size, hidden_size)
+                lin = nn.Linear(input_size, hidden_size[i])
                 self.layers.append(lin)
-                norm = nn.LayerNorm(hidden_size)
-                self.norms.append(norm)
-            elif i == self.layer_num-1:
-                lin = nn.Linear(hidden_size, output_size)
+            elif i == self.layer_num-2:
+                lin = nn.Linear(hidden_size[i-1], output_size)
                 self.layers.append(lin)
             else:
-                lin = nn.Linear(hidden_size, hidden_size)
+                lin = nn.Linear(hidden_size[i-1],  hidden_size[i])
                 self.layers.append(lin) 
-                norm = nn.LayerNorm(hidden_size)
-                self.norms.append(norm)
-            self.dropout.append(nn.Dropout(p=0.1))
 
     def forward(self, x, s, log_term: torch.Tensor = None):
         # Expand x and s to match the expected input shape
@@ -477,6 +479,146 @@ class CustomPINN_Green2D_Fourier_Dot(nn.Module):
         psi = self.psi(x,y)
         log_term = torch.log((torch.sqrt(((x-y)**2).sum(-1)))).view(psi.shape)
         val = (phi*log_term + psi)
+        if area is not None:
+            weight = (self.quadrature_weights(y)**2) / self.area
+            val *= weight
+                        
+        return val[...,0]
+    
+
+class Sine(nn.Module):
+    """Sine activation function with a learnable frequency parameter."""
+    def __init__(self, w0: float = 1.0):
+        super().__init__()
+        self.w0 = w0
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.sin(self.w0 * x)
+
+
+class SirenChannelMLP(nn.Module):
+    """
+    A SIREN (Sinusoidal Representation Network) version of a channel-wise MLP.
+
+    This module processes tensors of shape [Batch, Sequence, Channels] using
+    1x1 convolutions and sine activation functions, as described in the SIREN paper.
+    It includes the specific weight initialization required for SIRENs to function correctly.
+
+    Args:
+        input_dim (int): The number of input channels.
+        hidden_layers (Union[int, list[int]]): The size of the hidden layers.
+        output_dim (int): The number of output channels.
+        depth (int): The total number of Conv1d layers. Must be at least 2 for SIREN.
+        dropout (float): Dropout probability applied after each hidden layer's activation.
+        bias (bool): If True, adds a learnable bias to the convolutions.
+        is_first (bool): Must be True if this is the first layer of the entire model
+            to apply the special w0=30 and initialization.
+    """
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_layers: Union[int, list[int]],
+        output_dim: int,
+        depth: int = 2,
+        dropout: float = 0.0,
+        bias: bool = True,
+        is_first: bool = False
+    ):
+        super().__init__()
+        if depth < 2:
+            raise ValueError("SIREN MLP depth must be at least 2.")
+
+        self.depth = depth
+        self.input_dim = input_dim
+        self.is_first = is_first
+        layers_list: list[nn.Module] = []
+
+        # --- 1. Determine layer dimensions ---
+        num_hidden_layers = depth - 1
+        if isinstance(hidden_layers, int):
+            actual_hidden_dims = [hidden_layers] * num_hidden_layers
+        else:
+            if len(hidden_layers) >= num_hidden_layers:
+                actual_hidden_dims = hidden_layers[:num_hidden_layers]
+            else:
+                # Extend with the last hidden size if not enough are provided
+                actual_hidden_dims = hidden_layers + [hidden_layers[-1]] * (num_hidden_layers - len(hidden_layers))
+
+        all_dims = [input_dim] + actual_hidden_dims + [output_dim]
+
+        # --- 2. Build the SIREN network ---
+        for i in range(depth):
+            in_d, out_d = all_dims[i], all_dims[i+1]
+            is_final_layer = (i == depth - 1)
+
+            # Add the linear layer (as a 1x1 convolution)
+            layers_list.append(nn.Conv1d(in_d, out_d, kernel_size=1, bias=bias))
+
+            # Add Sine activation to all BUT the final layer
+            if not is_final_layer:
+                w0 = 30.0 if self.is_first and i == 0 else 1.0
+                layers_list.append(Sine(w0=w0))
+                if dropout > 0:
+                    layers_list.append(nn.Dropout(p=dropout))
+
+        self.network = nn.Sequential(*layers_list)
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        """Apply the specific weight initialization required for SIRENs."""
+        with torch.no_grad():
+            for i, m in enumerate(self.network.modules()):
+                if isinstance(m, nn.Conv1d):
+                    # Check if this is the first Conv1d layer of the first MLP in the model
+                    is_first_conv_in_first_layer = self.is_first and i == 1 # i==1 because module 0 is the Sequential itself
+
+                    if is_first_conv_in_first_layer:
+                        # SIREN first layer initialization
+                        nn.init.uniform_(m.weight, -1 / self.input_dim, 1 / self.input_dim)
+                    else:
+                        # SIREN subsequent layer initialization
+                        # in_channels is equivalent to fan_in for a 1x1 Conv
+                        nn.init.uniform_(m.weight, -math.sqrt(6.0 / m.in_channels), math.sqrt(6.0 / m.in_channels))
+
+                    if m.bias is not None:
+                        nn.init.zeros_(m.bias)
+
+    def forward(self, x: torch.Tensor, s:torch.Tensor) -> torch.Tensor:
+        """Forward pass expects a tensor of shape [B, S, C]."""
+        # Transpose for Conv1d: [B, S, C_in] -> [B, C_in, S]
+        x = torch.cat((x, s), dim=-1)
+        x_t = x.transpose(1, 2)
+        # Apply the sequential network
+        out_conv = self.network(x_t.float())
+        # Transpose back: [B, C_out, S] -> [B, S, C_out]
+        return out_conv.transpose(1, 2)
+    
+class SIRENPINN(nn.Module):
+    def __init__(self, num_layers: int, hidden_size: Union[int, list[int]],):        
+        super(SIRENPINN, self).__init__()
+        self.hidden_size = hidden_size
+        # self.domain = domain
+        # self.area = (domain[3]-domain[2])*(domain[1]-domain[0])
+        self.phi = PINN_NN(input_size=4, hidden_size=hidden_size, output_size=1, num_layers=num_layers)
+        self.psi = SirenChannelMLP(input_dim=4, depth=num_layers, hidden_layers=hidden_size, output_dim=1)
+        # self.l_weights = l_weights
+        self.quadrature_weights = MLP(input_size=2, hidden_size=32, output_size=1, num_layers=num_layers)
+
+    def forward(self, x, y, area = None):
+        '''
+        x is the input coordinate for u(x) = int (G(x,y) * f(y) dy). \n
+        y is the parameter along which we integrate. \n
+        :param Tensor x: b x f x 2 Tensor; b - batch size of coordinates, f - size of f_mesh, 2 - 2D
+        :param Tensor y: b x f x 2 Tensor; b - batch size of coordinates, f - size of f_mesh, 2 - 2D
+        :return: b x f Tensor; b - batch size of coordinates, f - size of f_mesh
+        :rtype: Tensor
+        '''
+        assert len(x.shape) == 3 and len(y.shape) == 3, "x and y must be 3D tensors with shape (batch_size, f_size, 2)"
+        phi = self.phi(x,y)
+        psi = self.psi(x,y)
+
+        log_term = -1/(2*torch.pi)*torch.log((torch.sqrt(((x-y)**2).sum(-1)))).view(phi.shape)
+        val = (phi * log_term + psi)
         if area is not None:
             weight = (self.quadrature_weights(y)**2) / self.area
             val *= weight

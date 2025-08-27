@@ -168,11 +168,11 @@ class GreenPINNDataset(Dataset):
         logger.info(f"Standardizing integration mesh sizes to size: {largest_integration_mesh_size}.")
         for i, (mesh, values) in enumerate(zip(self.f_meshes, self.f_values)):
             current_mesh_size = mesh.shape[0]
-            self.f_meshes[i] = torch.nn.functional.pad(mesh, (0, 0, 0, largest_integration_mesh_size-current_mesh_size), mode="constant", value=0)
-            self.f_values[i] = torch.nn.functional.pad(values, (0, largest_integration_mesh_size-current_mesh_size, 0, 0), mode="constant", value=0)
+            self.f_meshes[i] = torch.nn.functional.pad(mesh, (0, 0, 0, largest_integration_mesh_size-current_mesh_size), mode="constant", value=-1)
+            self.f_values[i] = torch.nn.functional.pad(values, (0, largest_integration_mesh_size-current_mesh_size, 0, 0), mode="constant", value=-1)
         
-        self.f_meshes = torch.cat(self.f_meshes)
-        self.f_values = torch.cat(self.f_values)
+        self.f_meshes = torch.stack(self.f_meshes)
+        self.f_values = torch.stack(self.f_values)
         #
 
         if subset_idx is not None:
@@ -289,6 +289,7 @@ class GreenPINNDataset(Dataset):
         In this implementation, we assume that we return one single f_mesh_idx
         Using the GreenBatchSampler below, for each batch, we sample a random mesh size and return the corresponding f_mesh and f_values.
         '''
+        # logger.info(f"{index}, {self.u_to_f_mesh_idx[index]}, {self.u_point_to_expr_idx[index]}")
         if isinstance(index, int):
             ret_item = DatasetReturnClass(
                 crd=self.evaluation_mesh[index],

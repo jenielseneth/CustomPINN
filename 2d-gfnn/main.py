@@ -7,7 +7,7 @@ from torch.optim.lr_scheduler import StepLR
 from training_utils import GreensTrainer
 from dataset_utils import GreenPINNDataset
 from constants_utils import Hyperparameters
-from PINN import CustomPINN_Green2D, CustomPINN_Green2D_Fourier_Dot, CustomPINN_Green2D_PoissonExplicit_W_Log, CustomPINN_Green2D_PoissonExplicit, CustomPINN_Green2D_PoissonExplicit_Dot
+from PINN import SIRENPINN, CustomPINN_Green2D, CustomPINN_Green2D_Fourier_Dot, CustomPINN_Green2D_PoissonExplicit_W_Log, CustomPINN_Green2D_PoissonExplicit, CustomPINN_Green2D_PoissonExplicit_Dot, SirenChannelMLP
 from loss import MAPELoss
 from random_utils import retrieve_dict_from_json
 from tqdm import tqdm
@@ -36,7 +36,8 @@ if __name__ == "__main__":
         test_excl_boundary_points=False,
         train_subset_idx=40000,
         test_subset_idx=4000,
-        model_cls=CustomPINN_Green2D_PoissonExplicit,
+        model_cls=CustomPINN_Green2D,
+        # model_params={"input_dim":4, "hidden_layers":[64, 64, 16], "output_dim": 1, "depth": 5},
         model_params={"hidden_size":16, "num_layers":5},
         optimizer_cls=torch.optim.Adam,
         optimizer_params={"lr":1e-4, "weight_decay":0},
@@ -44,7 +45,7 @@ if __name__ == "__main__":
         scheduler_params={"step_size":0, "gamma":0.5},
         l_weights=False,
         boundary_loss=True,
-        harmonic_psi_loss=False,
+        harmonic_psi_loss=True,
         num_epochs=40,
         num_runs=1,
         harmonic_psi_loss_factor=0.01,

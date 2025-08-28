@@ -30,7 +30,8 @@ if __name__ == "__main__":
     parser.add_argument('--td', type=str, help='Which test folder to use.')
     # Which tests to run
     parser.add_argument('--debug', action='store_true', help='Run debug mode.') 
-    parser.add_argument('--wandb', type=str, help='Which name the WandB run uses.')
+    parser.add_argument('--wandb', type=str, help='Which name the WandB project uses.')
+    parser.add_argument('--run_name', type=str, help='Which name the WandB run uses.')
     parser.add_argument('--pretrain_dir', type=str, help='Directory to retrieve pretrained model from.')
     args = parser.parse_args()
     #Hyperparameters
@@ -57,8 +58,10 @@ if __name__ == "__main__":
         boundary_loss_factor=1.0,
         device=torch.device("mps"),
         wandb_project_name=args.wandb if args.wandb else "test",
+        train_dir=args.rd,
         test_dir=args.td,
-        multi_mesh_training_variant="standardize"
+        multi_mesh_training_variant="standardize",
+        wandb_run_name=args.run_name
     )
 
     # User input for the folder from which we retrieve data..

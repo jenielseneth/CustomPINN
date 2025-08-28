@@ -43,6 +43,8 @@ class Hyperparameters:
     num_runs: int = 1
     device: torch.device = torch.device("mps")
     wandb_project_name: str = "test",
+    wandb_run_name: str | None = None, 
+    train_dir : str | None = None,
     test_dir: str | None = None,
     multi_mesh_training_variant: multi_mesh_training_method = "standardize"
 

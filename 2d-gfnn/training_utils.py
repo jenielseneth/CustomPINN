@@ -293,12 +293,12 @@ class GreensTrainer:
             integration_mesh_values = item.f_vals[n_c].to(self.device)
 
             if self.config.multi_mesh_training_variant =="standardize":
-                integration_meshes = self.train_f_meshes[item.f_mesh_idx][n_c]
-                quadrature_weights = self.train_inference_utils.quadrature_weights[item.f_mesh_idx][n_c]
+                integration_meshes = self.test_f_meshes[item.f_mesh_idx][n_c]
+                quadrature_weights = self.test_inference_utils.quadrature_weights[item.f_mesh_idx][n_c]
 
             elif self.config.multi_mesh_training_variant == "obo":
-                integration_meshes = self.train_f_meshes[item.f_mesh_idx]
-                quadrature_weights = self.train_inference_utils.quadrature_weights[item.f_mesh_idx]
+                integration_meshes = self.test_f_meshes[item.f_mesh_idx]
+                quadrature_weights = self.test_inference_utils.quadrature_weights[item.f_mesh_idx]
 
             if self.config.harmonic_psi_loss:
                 assert NotImplementedError ("The current implementation does not support multiple integration meshes. Implement evaluate_greens_function_integral.")
@@ -365,6 +365,7 @@ class GreensTrainer:
                 if not self.debug_mode:
 
                     project_name = self.config.wandb_project_name
+                    run_name = self.config.wandb_run_name
                     # WandB initialization
                     wandb_config = {
                             **self.config.__dict__,
@@ -374,7 +375,8 @@ class GreensTrainer:
                     wandb_run = wandb.init(
                         entity="jens1225-eth-zrich",
                         project=project_name,
-                        config=wandb_config
+                        config=wandb_config,
+                        name=run_name
                     )
 
                     

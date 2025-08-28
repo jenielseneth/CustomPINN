@@ -135,10 +135,17 @@ def quadrature_rule_debugger():
     # ---- 1. Calculate for a randomly generated problem the f_values for different f_mesh resolutions, 
     #   along with the ground-truth u(x) values for a set of evaluation points. ----
     f_mesh_points = []
-    
+    quad_weights = []
+
     # Assure f_mesh_points are of original size and have no padding
     for i, mesh in enumerate(test_data.f_meshes):
         f_mesh_points.append(mesh[:math.prod(test_data.constants.integration_mesh_sizes[i])])
+    
+
+    # Assure quad_weights are of original size and have no padding
+    for i, weights in enumerate(test_inference_utils.quadrature_weights):
+        quad_weights.append(weights[:math.prod(test_data.constants.integration_mesh_sizes[i])])
+
 
     f_mesh_values = []
 
@@ -196,7 +203,7 @@ def quadrature_rule_debugger():
                                       evaluation_mesh=eval_points,
                                       integration_meshes=points,
                                       integration_mesh_values=values,
-                                      quadrature_weights=test_inference_utils.quadrature_weights[i])
+                                      quadrature_weights=quad_weights[i])
         u_approx_values.append(u_approx)
     u_approx_values = torch.stack(u_approx_values)
     logger.info("Quadrature rule debugger - approximating ground truth solution for varying integration mesh resolutions...")

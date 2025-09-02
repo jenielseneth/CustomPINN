@@ -9,11 +9,11 @@ from dataset_utils import GreenPINNDataset
 from constants_utils import Hyperparameters
 from PINN import (SIRENPINN_Explicit, 
                   CustomPINN_Green2D, 
-                  CustomPINN_Green2D_Fourier_Dot, 
                   CustomPINN_Green2D_PoissonExplicit_W_Log, 
                   CustomPINN_Green2D_PoissonExplicit, 
-                  CustomPINN_Green2D_PoissonExplicit_Dot,
-                  SIRENPINN)
+                  SIRENPINN,
+                  SIRENPINN_Dumb,
+                  )
 from loss import MAPELoss
 from random_utils import retrieve_dict_from_json
 from tqdm import tqdm
@@ -51,7 +51,7 @@ if __name__ == "__main__":
         scheduler_params={"step_size":0, "gamma":0.5},
         l_weights=False,
         boundary_loss=True,
-        harmonic_psi_loss=True,
+        harmonic_psi_loss=False,
         num_epochs=40,
         num_runs=1,
         harmonic_psi_loss_factor=0.01,

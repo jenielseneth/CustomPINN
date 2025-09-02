@@ -624,3 +624,35 @@ class SIRENPINN_Explicit(nn.Module):
             val *= weight
                         
         return val[...,0]
+    
+class SIRENPINN(nn.Module):
+    def __init__(self, num_layers: int, hidden_size: Union[int, list[int]],):        
+        super(SIRENPINN, self).__init__()
+        self.hidden_size = hidden_size
+        # self.domain = domain
+        # self.area = (domain[3]-domain[2])*(domain[1]-domain[0])
+        self.phi = SirenChannelMLP(input_dim=4, depth=num_layers, hidden_layers=hidden_size, output_dim=1)
+        self.psi = SirenChannelMLP(input_dim=4, depth=num_layers, hidden_layers=hidden_size, output_dim=1)
+        # self.l_weights = l_weights
+        self.quadrature_weights = MLP(input_size=2, hidden_size=32, output_size=1, num_layers=num_layers)
+
+    def forward(self, x, y, area = None):
+        '''
+        x is the input coordinate for u(x) = int (G(x,y) * f(y) dy). \n
+        y is the parameter along which we integrate. \n
+        :param Tensor x: b x f x 2 Tensor; b - batch size of coordinates, f - size of f_mesh, 2 - 2D
+        :param Tensor y: b x f x 2 Tensor; b - batch size of coordinates, f - size of f_mesh, 2 - 2D
+        :return: b x f Tensor; b - batch size of coordinates, f - size of f_mesh
+        :rtype: Tensor
+        '''
+        assert len(x.shape) == 3 and len(y.shape) == 3, "x and y must be 3D tensors with shape (batch_size, f_size, 2)"
+        phi = self.phi(x,y)
+        psi = self.psi(x,y)
+
+        log_term = torch.log((torch.sqrt(((x-y)**2).sum(-1)))).view(phi.shape)
+        val = (phi*log_term + psi)
+        if area is not None:
+            weight = (self.quadrature_weights(y)**2) / self.area
+            val *= weight
+                        
+        return val[...,0]

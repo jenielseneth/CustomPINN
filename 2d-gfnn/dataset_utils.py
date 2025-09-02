@@ -155,11 +155,11 @@ class GreenPINNDataset(Dataset):
         self.f_meshes = data["f_meshes"] # List of length n_f_mesh; items are of size f_mesh_size_i x 2 Tensor of source term meshes.
         self.f_values = data["f_values"] # List of length n_f_mesh; items are of size num_expr x len(f_mesh_size) Tensor of source term values.
         self.u_length = len(self.evaluation_values) 
-        self.f_length = len(self.f_values) 
-        self.u_data_addresses = data["u_data_addresses"] # List of length n_f_mesh (number of f_meshes); each item contains n_expr (number of source terms) of tuples (start, end) for u_addresses for each source term.
-        self.f_data_addresses = data["f_data_addresses"] # List of length n_f_mesh (number of f_meshes); each item contains n_expr (number of source terms) of tuples (start, end) for u_addresses for each source term.
+
+        # Addresses for individual f mesh sizes and f_values
         self.u_to_f_mesh_idx = data["u_to_f_mesh_idx"] # List of length u_length (number of source terms) containing the index of the f_mesh for each u coordinate point.
         self.u_point_to_expr_idx = data["u_point_to_expr_idx"] # List of length u_length (number of source terms) containing the index of the source term for each u coordinate point.
+        self.u_data_addresses = data["u_data_addresses"] # List of length n_f_mesh (number of f_meshes); each item contains n_expr (number of source terms) of tuples (start, end) for u_addresses for each source term.
         self.mesh_addresses = data["mesh_size_addresses"] # List of length n_f_mesh of tuples (start, end) for the evaluation points for each corresponding mesh size.
         # Calculate starting indices in relation to amount of total source terms for each new size f - i.e. calculating n_expr_1 + n_expr_2 + ... + n_expr_n   
         self.num_f_terms = []
@@ -174,35 +174,113 @@ class GreenPINNDataset(Dataset):
             # Standardize f_meshes and f_values
             largest_integration_mesh_size = math.prod(self.constants.integration_mesh_sizes[-1])
             logger.info(f"Standardizing integration mesh sizes to size: {largest_integration_mesh_size}.")
-            for i, (mesh, values) in enumerate(zip(self.f_meshes, self.f_values)):
+            for i, (mesh, v) in enumerate(zip(self.f_meshes, self.f_values)):
                 current_mesh_size = mesh.shape[0]
                 self.f_meshes[i] = torch.nn.functional.pad(mesh, (0, 0, 0, largest_integration_mesh_size-current_mesh_size), mode="constant", value=-1)
-                self.f_values[i] = torch.nn.functional.pad(values, (0, largest_integration_mesh_size-current_mesh_size, 0, 0), mode="constant", value=-1)
+                self.f_values[i] = torch.nn.functional.pad(v, (0, largest_integration_mesh_size-current_mesh_size, 0, 0), mode="constant", value=-1)
             
             self.f_meshes = torch.stack(self.f_meshes)
             self.f_values = torch.stack(self.f_values)
             #
 
         if subset_idx is not None:
-            if subset_idx < self.u_length:
-                idxs = random.sample(range(0, self.u_length), subset_idx)
-                self.u_to_f_mesh_idx = [data["u_to_f_mesh_idx"][i] for i in idxs]
-                sorted_indices = sorted(range(len(self.u_to_f_mesh_idx)),key=lambda i: self.u_to_f_mesh_idx [i])
+            # subset_idx = 20
+            if subset_idx < self.u_length: 
 
+                # Get subset_idx amount of random indices. 
+                idxs = random.sample(range(0, self.u_length), subset_idx)
+                self.u_length = subset_idx
+
+                # Need to sort indices by their f_mesh_idx and then u_point_to_expr_idx to ensure that mesh_addresses works properly.
+                sorted_indices = sorted(idxs, key=lambda idx: self.num_f_terms[self.u_to_f_mesh_idx[idx]] + self.u_point_to_expr_idx[idx])
+
+                # Get subset points and values
                 self.evaluation_mesh = self.evaluation_mesh[sorted_indices]
                 self.evaluation_values = self.evaluation_values[sorted_indices]
+
+                # Change address pointers
                 self.u_to_f_mesh_idx = [self.u_to_f_mesh_idx[i] for i in sorted_indices]
-                self.u_point_to_expr_idx = [data["u_point_to_expr_idx"][i] for i in sorted_indices]
-                self.u_length = subset_idx      
+                self.u_point_to_expr_idx = [self.u_point_to_expr_idx[i] for i in sorted_indices]
+
+                # Set Counter for easier computing of number of elements per f_mesh.
+                f_mesh_counter = Counter(self.u_to_f_mesh_idx)
+
+                # Update num_f_terms with the new amount of points.
+                new_num_f_terms = []
+                num_f_term_start = 0
+                for key, value in f_mesh_counter.items():
+                    new_num_f_terms.append(num_f_term_start)
+                    num_f_term_start += value
+                self.num_f_terms = new_num_f_terms
+
+                # Update f_meshes to only include the meshes that were still picked.
+                self.f_meshes = torch.stack([self.f_meshes[key] for key in f_mesh_counter.keys()])
+
+                # Update f_values to only include the meshes that were still picked.
+
+                # First isolate the f_mesh associated sub-lists that are actually included in the datset.
+
+                # Store f_values associated with an f_mesh in dictionary
+                new_f_values_dict = {idx : [] for idx in f_mesh_counter.keys()}
+                for f_mesh_idx, expr_idx in zip(self.u_to_f_mesh_idx, self.u_point_to_expr_idx):
+                    new_f_values_dict[f_mesh_idx].append(self.f_values[f_mesh_idx][expr_idx])
+                
+                new_f_values = []
+
+                # Used for case of standardize variant 
+                max_n_f_terms = max(f_mesh_counter.values())
+                for _, v in new_f_values_dict.items():
+                    if self.config.multi_mesh_training_variant == "standardize":
+                        # Pad out values so that each f_mesh associated f_values tensor has the same size. E.g. if some f_mesh only has 2 f_value tensors, and another has 3, we can't stack these tensors.
+                        v = torch.nn.functional.pad(torch.stack(v), (0, 0, 0, max_n_f_terms-len(v)), mode="constant", value=0)
+                    new_f_values.append(v)
+
+
+                # Use Counter to count number of elements associated with one mesh size.
                 mesh_address_start = 0
                 new_mesh_addresses = []
-                mesh_counter = Counter(self.u_to_f_mesh_idx)
-                for key, value in sorted(mesh_counter.items()):
+                for key, value in sorted(f_mesh_counter.items()):
                     new_mesh_addresses.append((mesh_address_start, mesh_address_start + value))
                     mesh_address_start += value
                 self.mesh_addresses = new_mesh_addresses
+
+                # Update indices counter to change from global representation (e.g. index 10 is the 10th in relation to the entire dataset) 
+                #   to new local representation (i.e. now we only have a select f_meshes and f_values, so index 10 would refer to the 10th element in relation to the new subset.)
+                local_u_to_f_mesh_idx = []
+                local_u_point_to_expr_idx = []
+
+                for i, (n, mesh_address) in enumerate(zip(f_mesh_counter.values(), self.mesh_addresses)):
+                    local_u_to_f_mesh_idx.extend([i]*n)
+                    current_f_mesh_source_term_counter = Counter(self.u_point_to_expr_idx[slice(*mesh_address)])
+                    for j, (k, v) in enumerate(current_f_mesh_source_term_counter.items()):
+                        local_u_point_to_expr_idx.extend([j]*v)
+                self.u_to_f_mesh_idx = local_u_to_f_mesh_idx
+                self.u_point_to_expr_idx = local_u_point_to_expr_idx
+
+                # Update u_data_addresses.
+                new_u_data_addresses = []
+                for mesh_address in self.mesh_addresses:
+                    sub_indices = sorted_indices[slice(*mesh_address)]
+
+                    # Count the amount of elements that have a specific source term index
+                    source_term_counter = Counter(sub_indices)
+                    u_data_address_start = 0
+                    f_mesh_u_data_address = [] 
+                    for _, value in source_term_counter.items():
+                        f_mesh_u_data_address.append((u_data_address_start, u_data_address_start + value))
+                        u_data_address_start += value
+                    new_u_data_addresses.append(f_mesh_u_data_address)
+
+                self.u_data_addresses = new_u_data_addresses
+                
+                    
+                    
+
+
             elif subset_idx > self.u_length:
                 raise ValueError(f"Subset index {subset_idx} is larger than the dataset length {self.u_length}.")
+            else:
+                logger.info("Subset_idx param is same size as dataset, will not create subset of data.")
 
 
 
@@ -280,6 +358,7 @@ class GreenPINNDataset(Dataset):
             )
             return ret_item
         elif isinstance(index, slice):
+            assert self.config.multi_mesh_training_variant == "standardize", "Currently only implemented for standardize because of the f_vals stack function."
             u_to_f_mesh_idx=self.u_to_f_mesh_idx[index]
             u_point_to_expr_idx=self.u_point_to_expr_idx[index]
             ret_item = DatasetReturnClass(
@@ -291,6 +370,7 @@ class GreenPINNDataset(Dataset):
             return ret_item
 
         elif isinstance(index, list[slice]):
+            assert self.config.multi_mesh_training_variant == "standardize", "Currently only implemented for standardize because of the f_vals stack function."
             total_crd = []
             total_u_vals = []
             total_f_mesh_idx = []

@@ -119,7 +119,7 @@ class GreensTrainer:
             
             test_batch_sampler = GreenOneByOneBatchSampler(sampler=range(len(self.test_data)), batchsize=self.config.test_batch_size, 
                                                        drop_last=True, mesh_size_addresses=self.test_data.mesh_addresses)
-            self.testloader  = DataLoader(self.test_data, 
+            self.testloader = DataLoader(self.test_data, 
                                         collate_fn=greens_pinn_dataset_obo_collate_fn,
                                         batch_sampler=test_batch_sampler
                                         )
@@ -162,7 +162,7 @@ class GreensTrainer:
         self.training_data.constants.to_device(self.device)
         self.test_data.constants.to_device(self.device)
 
-    def _train(self, model: torch.nn.Module, optimizer: torch.optim.Optimizer) -> torch.Tensor: 
+    def _train(self, model: torch.nn.Module, optimizer: torch.optim.Optimizer) -> dict: 
         size = len(self.trainloader.dataset)
         model.train()
         current_num = 0
@@ -274,9 +274,12 @@ class GreensTrainer:
             total_boundary_loss += boundary_loss
             # total_harmonic_u_loss += harmonic_u_loss
 
-        return total_loss, total_prediction_loss, total_boundary_loss, total_harmonic_psi_loss
+        return {"total_loss": total_loss, 
+                "total_prediction_loss": total_prediction_loss, 
+                "total_boundary_loss":total_boundary_loss, 
+                "total_harmonic_psi_loss": total_harmonic_psi_loss}
     
-    def _test(self, model) -> torch.Tensor:
+    def _test(self, model) -> dict:
         size = len(self.testloader.dataset)
         model.eval()
         test_loss = torch.zeros(len(self.test_loss_fn)).to(self.device)
@@ -333,8 +336,8 @@ class GreensTrainer:
                 
                 if self.boundary_loss == True:
                 # Boundary loss ||G(x,y) - boundary conditions||
-                    greens_function_boundary_eval = model(self.bnd_points[:, None, :].expand(-1, self.train_f_meshes[-1].shape[0] ,-1), 
-                                                        self.train_f_meshes[-1].expand(self.bnd_points.shape[0], -1, -1))
+                    greens_function_boundary_eval = model(self.bnd_points[:, None, :].expand(-1, self.test_f_meshes[-1].shape[0] ,-1), 
+                                                        self.test_f_meshes[-1].expand(self.bnd_points.shape[0], -1, -1))
                     boundary_loss = torch.tensor([loss_fn(greens_function_boundary_eval, torch.zeros_like(greens_function_boundary_eval)) for loss_fn in self.test_loss_fn], device=self.device)
                 else:
                     boundary_loss = torch.tensor([0.0 for _ in self.test_loss_fn], device=self.device)
@@ -345,7 +348,10 @@ class GreensTrainer:
 
         for i, tl in enumerate(test_loss):
             tqdm.write(f"Avg Test Loss {self.test_loss_fn[i]} per sample: {tl / size :>8f} \n", end="")
-        return test_loss, total_prediction_loss, total_harmonic_psi_loss, total_boundary_loss
+        return {"test_loss": test_loss, 
+                "total_prediction_loss": total_prediction_loss, 
+                "total_boundary_loss": total_boundary_loss,
+                "total_harmonic_psi_loss":total_harmonic_psi_loss}
     
     def run(self, directory: list[str] | str):
         '''
@@ -387,7 +393,7 @@ class GreensTrainer:
                         else:
                             #Get WandB Project Name
                             wand_b_run_name = wandb_run.name
-                            model_dir = directory + f"models/{project_name}_{wand_b_run_name}/" 
+                            model_dir = f"./models/{project_name}/{wand_b_run_name}/" 
                             
                             # Check model_dir doesn't exist to prevent overwriting.
                             try:
@@ -424,8 +430,8 @@ class GreensTrainer:
                 train_fn = self._train
                 test_fn = self._test
                 for epoch in tqdm(range(self.config.num_epochs), desc="Epochs", leave=False):
-                    train_loss, train_prediction_loss, train_boundary_loss, train_harmonic_psi_loss = train_fn(model=model, optimizer=optimizer)
-                    test_loss, test_prediction_loss, test_harmonic_psi_loss, test_boundary_loss  = test_fn(model)
+                    train_loss, train_prediction_loss, train_boundary_loss, train_harmonic_psi_loss = train_fn(model=model, optimizer=optimizer).values()
+                    test_loss, test_prediction_loss, test_boundary_loss, test_harmonic_psi_loss  = test_fn(model).values()
 
                     if scheduler is not None:
                         scheduler.step()
@@ -438,19 +444,19 @@ class GreensTrainer:
                         # Log best total test loss
                         best_indices = torch.nonzero(test_loss < best_test_loss).squeeze()
                         if best_indices.dim() > 0:
-                            for i in best_indices:
+                            for i, loss_fn in zip(best_indices, self.test_loss_fn):
                                 best_test_loss[i] = test_loss[i]
                                 if not self.debug_mode:
-                                    tqdm.write(f"New best model found at epoch {epoch+1} with test loss {best_test_loss[i]}. Saving model.")
+                                    tqdm.write(f"New best model found at epoch {epoch+1} with test loss {best_test_loss[i]} for {loss_fn}. Saving model.")
                                     torch.save(model.state_dict(), model_dir + f"model_best_{self.test_loss_fn[i]}.pth")
                         
                         # Log best prediction test loss
                         best_indices = torch.nonzero(test_prediction_loss < best_test_prediction_loss).squeeze()
                         if best_indices.dim() > 0:
-                            for i in best_indices:
+                            for i, loss_fn in zip(best_indices, self.test_loss_fn):
                                 best_test_prediction_loss[i] = test_prediction_loss[i]
                                 if not self.debug_mode:
-                                    tqdm.write(f"New best model found at epoch {epoch+1} with prediction test loss {best_test_prediction_loss[i]}. Saving model.")
+                                    tqdm.write(f"New best model found at epoch {epoch+1} with prediction test loss {best_test_prediction_loss[i]} for {loss_fn}. Saving model.")
                                     torch.save(model.state_dict(), model_dir + f"model_best_prediction_{self.test_loss_fn[i]}.pth")
 
 
@@ -465,11 +471,7 @@ class GreensTrainer:
                                      f"train/harmonic_psi_{self.train_loss_fn}": train_harmonic_psi_loss.item(),
                                      f"train/boundary_{self.train_loss_fn}": train_boundary_loss.item(),
                                        **total_test_metrics}
-                    # Calculate resolution invariant loss
-                    # test_int_mesh_size = self.test_data.constants.integration_mesh_size
-                    # train_int_mesh_size = self.training_data.constants.integration_mesh_size
-                    # res_inv_test_metrics = {f"test/int_mesh_resolution_norm_{self.test_loss_fn[i]}": test_loss[i].item()/(prod(test_int_mesh_size))for i in range(len(self.test_loss_fn))}
-                    # res_inv_metrics = {f"train/int_mesh_resolution_norm_{self.train_loss_fn}": train_loss[0].item()/prod(train_int_mesh_size), **res_inv_test_metrics}
+                   
                     metrics = {**total_metrics}
                     
                     # Log best losses at last epoch

@@ -6,8 +6,9 @@ import typing
 import torch
 from plot_utils import plot_multiple_points, plot_points
 from expr_generation_utils import expr_to_func, func_input_wrapper, generate_u_expr, generate_u_expr_w_bnd, get_diffusion_term_a_expr, get_f_expr, get_u_bnd_expr
-from data_generation_utils import generate_points, multiple_f_meshes_generate_points, sample_points 
+from data_generation_utils import multiple_f_meshes_generate_points
 from constants_utils import DataGenerationParameters
+from poisson_utils import generate_darcy_flow_diffusion_parameters
 from random_utils import log_dict_as_json, retrieve_dict_from_json
 import math
 import os
@@ -38,20 +39,18 @@ if __name__ == "__main__":
         print("Generating function expressions.")
         darcy_flow = False
 
-        if darcy_flow:
-            assert False, "Darcy flow not implemented yet, haven't found a workaround for saving darcy flow points for multiple sized u_meshes."
-
         n_u_train = 100 # Amount of source terms per training mesh for training data
         n_u_test = 100 # Amount of source terms per test mesh for training data
         u_train_mesh_type: mesh_type = "chebyshev"
         u_train_mesh_sizes = [(8, 8), (12, 12), (20, 20)]
-        # u_train_mesh_sizes = [(20, 20)]
+        u_train_mesh_sizes = [(20, 20)]
         u_test_mesh_type: mesh_type = "chebyshev"
         u_test_mesh_sizes = [(8, 8), (12, 12), (20, 20)]
-        # u_test_mesh_sizes = [(20, 20)]
+        u_test_mesh_sizes = [(20, 20)]
         f_mesh_type: mesh_type = "chebyshev"
-        f_mesh_sizes = [(4,4), (6,6), (9,9), (13,13), (16,16), (18,18), (21,21), (24, 24), (28, 28), (32,32)]
-        # f_mesh_sizes = [(32,32)]
+        # f_mesh_sizes = [(4,4), (6,6), (9,9), (13,13), (16,16), (18,18), (21,21), (24, 24), (28, 28), (32,32)]
+        # f_mesh_sizes = [(13,13), (16,16), (18,18), (21,21)]
+        f_mesh_sizes = [(13,13)]
         mesh_size_tuples = []
 
 
@@ -62,17 +61,17 @@ if __name__ == "__main__":
         else:
             print("Warning: " + dir + " already exists.")
         
+        # Get diffusion parameters
+        darcy_flow_diffusion_params = generate_darcy_flow_diffusion_parameters(domain=domain) if darcy_flow else None
         # Train data
         multiple_f_meshes_generate_points(
                         domain=domain, save_dir=dir, 
                         file_name="data_train.pt", log_file_name="train_params.json",
                         num_f_terms=n_u_train, 
                         u_mesh_sizes=u_train_mesh_sizes, u_mesh_type=u_train_mesh_type, 
-                        f_mesh_sizes=f_mesh_sizes, f_mesh_type=f_mesh_type, darcy_flow=darcy_flow)
+                        f_mesh_sizes=f_mesh_sizes, f_mesh_type=f_mesh_type, 
+                        darcy_flow=darcy_flow, diffusion_gaussian_parameters=darcy_flow_diffusion_params)
         
-        # Get diffusion parameters
-        if darcy_flow:
-            train_params = DataGenerationParameters(**retrieve_dict_from_json(dir+"train_params.json"))
 
         # Test data
         multiple_f_meshes_generate_points(
@@ -81,7 +80,7 @@ if __name__ == "__main__":
                         num_f_terms=n_u_test, 
                         u_mesh_sizes=u_test_mesh_sizes, u_mesh_type=u_train_mesh_type, 
                         f_mesh_sizes=f_mesh_sizes, f_mesh_type=f_mesh_type, darcy_flow=darcy_flow,
-                        diffusion_gaussian_parameters=train_params.diffusion_params if darcy_flow else None
+                        diffusion_gaussian_parameters=darcy_flow_diffusion_params
                         )
 
         ##Test if data generation went well
@@ -101,7 +100,7 @@ if __name__ == "__main__":
             train_params = DataGenerationParameters(**retrieve_dict_from_json(dir+"train_params.json"))
             plot_title = "Train Diffusion Term a(x)"
             u_coordinates = points["coordinates"][u_slice_ind]
-            diffusion_eval_values = points["diffusion_eval_point_values"]
+            diffusion_eval_values = points["diffusion_eval_point_values"][mesh_ind]
             plot_points(u_coordinates, diffusion_eval_values, title=plot_title)
 
         #Check random source term
@@ -129,7 +128,7 @@ if __name__ == "__main__":
             train_params = DataGenerationParameters(**retrieve_dict_from_json(dir+"test_params.json"))
             plot_title = "Test Diffusion Term a(x)"
             u_coordinates = points["coordinates"][u_slice_ind]
-            diffusion_eval_values = points["diffusion_eval_point_values"]
+            diffusion_eval_values = points["diffusion_eval_point_values"][mesh_ind]
             plot_points(u_coordinates, diffusion_eval_values, title=plot_title)
 
 

@@ -1,4 +1,5 @@
 
+from dataclasses import dataclass
 from ngsolve import *
 from expr_generation_utils import get_gaussian_expr, expr_to_func, func_input_wrapper
 from plot_utils import plot_points, plot_multiple_points
@@ -76,7 +77,34 @@ def generate_poisson_points(n: int, domain: tuple, eval_points: torch.Tensor, in
     return {"parameters": total_parameters, "u_values": total_eval_values, "f_values": total_integration_values}
 
 
-def generate_darcy_flow_points(n: int, domain: tuple, eval_points: torch.Tensor, integration_points: torch.Tensor, diffusion_gaussian_parameters=None):
+@dataclass
+class DarcyFlowDiffusionParams:
+    coeff_a: float
+    sigma_x: float
+    sigma_y: float
+    mean_x: float
+    mean_y: float
+
+def generate_darcy_flow_diffusion_parameters(domain: tuple):
+        coeff_a = random.uniform(1, 2)
+        sigma_x = random.uniform(0.1, 0.3)
+        sigma_y = random.uniform(0.1, 0.3)
+        mean_x = random.uniform(domain[0], domain[1])
+        mean_y = random.uniform(domain[2], domain[3])
+        # diffusion_parameters = DarcyFlowDiffusionParams(coeff_a=coeff_a,
+        #                                                 sigma_x=sigma_x,
+        #                                                 sigma_y=sigma_y,
+        #                                                 mean_x=mean_x,
+        #                                                 mean_y=mean_y)
+        diffusion_parameters = {"coeff_a": coeff_a, "sigma_x": sigma_x, "sigma_y": sigma_y, "mean_x": mean_x, "mean_y": mean_y}
+        return diffusion_parameters
+
+
+def generate_darcy_flow_points(n: int, 
+                               domain: tuple, 
+                               eval_points: torch.Tensor, 
+                               integration_points: torch.Tensor, 
+                               diffusion_gaussian_parameters: dict):
     '''
     Generates samples for the Poisson equation ▽(a(x)▽u(x))=f(x) over Ω, u(x)=0 over ∂Ω
       for n different Gaussian source terms evaluated each at eval_points.
@@ -102,20 +130,12 @@ def generate_darcy_flow_points(n: int, domain: tuple, eval_points: torch.Tensor,
     v = fes.TestFunction()
 
     # Define the diffusion term as a Gaussian function
-    if diffusion_gaussian_parameters is None:
-        coeff_a = random.uniform(1, 2)
-        sigma_x = random.uniform(0.1, 0.3)
-        sigma_y = random.uniform(0.1, 0.3)
-        mean_x = random.uniform(domain[0], domain[1])
-        mean_y = random.uniform(domain[2], domain[3])
-        diffusion_parameters = {"coeff_a": coeff_a, "sigma_x": sigma_x, "sigma_y": sigma_y, "mean_x": mean_x, "mean_y": mean_y}
-    else:
-        coeff_a = diffusion_gaussian_parameters["coeff_a"]
-        sigma_x = diffusion_gaussian_parameters["sigma_x"]
-        sigma_y = diffusion_gaussian_parameters["sigma_y"]
-        mean_x = diffusion_gaussian_parameters["mean_x"]
-        mean_y = diffusion_gaussian_parameters["mean_y"]
-        diffusion_parameters = diffusion_gaussian_parameters
+    coeff_a = diffusion_gaussian_parameters["coeff_a"]
+    sigma_x = diffusion_gaussian_parameters["sigma_x"]
+    sigma_y = diffusion_gaussian_parameters["sigma_y"]
+    mean_x = diffusion_gaussian_parameters["mean_x"]
+    mean_y = diffusion_gaussian_parameters["mean_y"]
+    diffusion_parameters = diffusion_gaussian_parameters
     diffusion_term = CoefficientFunction(coeff_a*exp(-((x-mean_x)**2 / (2*sigma_x**2) + (y-mean_y)**2 / (2*sigma_y**2))))   
     # the bilinear-form 
     a = BilinearForm(fes, symmetric=True)

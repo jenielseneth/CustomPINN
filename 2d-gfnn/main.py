@@ -12,7 +12,8 @@ from PINN import (SIRENPINN_Explicit,
                   CustomPINN_Green2D_Fourier_Dot, 
                   CustomPINN_Green2D_PoissonExplicit_W_Log, 
                   CustomPINN_Green2D_PoissonExplicit, 
-                  CustomPINN_Green2D_PoissonExplicit_Dot)
+                  CustomPINN_Green2D_PoissonExplicit_Dot,
+                  SIRENPINN)
 from loss import MAPELoss
 from random_utils import retrieve_dict_from_json
 from tqdm import tqdm

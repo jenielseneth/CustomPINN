@@ -12,7 +12,8 @@ from plot_utils import plot_multiple_points
 from data_generation_utils import sample_points
 from pde_utils import InferenceUtils, evaluate_greens_function_integral, greens_function_laplacian_2d, u_laplacian_2d, StandardizedInferenceUtils
 from expr_generation_utils import expr_to_func, func_input_wrapper
-from random_utils import find_line_with_keyword, retrieve_dict_from_json
+from random_utils import retrieve_dict_from_json
+from training_utils import GreensTrainer
 from loss import fetch_quadrature_weights
 from debugging_utils import check_poisson_2d_harmonic_func, plot_fundamentals, plot_greens_function_animation
 import argparse
@@ -73,6 +74,7 @@ def sample_problems_plotter():
     else:
         random_f_mesh_idx = random.sample(range(0, len(test_data.f_meshes)), num)
     random_f_values_idx = [random.sample(range(0, len(test_data.f_values[idx])), 1)[0] for idx in random_f_mesh_idx]
+
     approx_values = []
     u_gt = []
     eval_points = []
@@ -81,6 +83,7 @@ def sample_problems_plotter():
     # size = math.prod(universal_evaluation_mesh_size)
     for f_m_i, f_v_i in zip(random_f_mesh_idx, random_f_values_idx):
         u_data_address = test_data.u_data_addresses[f_m_i][f_v_i]
+
         sample_gt = test_data[slice(*u_data_address)] # num x size x 2 List of Dataset objects
         non_corner_idx, _ = get_corners_idx(domain=domain, mesh=sample_gt.crd)
         crd =sample_gt.crd[non_corner_idx] 
@@ -88,10 +91,6 @@ def sample_problems_plotter():
         f_mesh = global_f_meshes[f_m_i]
         f_values = sample_gt.f_vals[non_corner_idx]
         
-        # quadrature_weights = fetch_quadrature_weights(domain=domain,
-        #                                             integration_mesh_size=test_data.constants.integration_mesh_sizes[f_m_i], 
-        #                                             integration_mesh_type=test_data.constants.integration_mesh_type)
-
         quadrature_weights = inference_utils.quadrature_weights[f_m_i]
 
         approx_values.append(evaluate_greens_function_integral(greens_function=model, 
@@ -445,6 +444,13 @@ def int_mesh_gf_anim_plotter():
                                     title="G(x,s), s ∈ Ω",
                                     save_dir=figure_dir, save_name="GFIntegrationMeshAnim",
                                     show=show)
+    
+def loss_debugger():
+    model.to(config.device)
+    losses = trainer._test(model=model)
+    for key, value in losses.items():
+        for loss_fn, loss in zip(test_loss_fn, value):
+            logger.info(f"{loss_fn} - {key}: {loss}")
 
 
 if __name__ == "__main__":
@@ -472,7 +478,8 @@ if __name__ == "__main__":
     debuggers = {
         "u_harm": harmonic_loss_debugger,
         "psi_harm": psi_harmonic_loss_debugger,
-        "quad": quadrature_rule_debugger
+        "quad": quadrature_rule_debugger,
+        "loss": loss_debugger
 
     }
 
@@ -483,7 +490,7 @@ if __name__ == "__main__":
     }
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--rd', type=str, required=True, help='Which res folder to use.')
+    # parser.add_argument('--rd', type=str, required=True, help='Which res folder to use.')
     parser.add_argument('--md', nargs='+', type=str, required=True, help='Which model folder to use.')
     # Which tests to run
     parser.add_argument('--all', action='store_true', help='Run all tests.') 
@@ -494,38 +501,46 @@ if __name__ == "__main__":
     parser.add_argument('--run', nargs='+', choices=tasks.keys(), help="Tasks to run. Choose from: " + ", ".join(tasks.keys()))
     parser.add_argument('--show', action='store_true', help='Show plots.') 
     args = parser.parse_args()
-
-    main_dir = "./res/" + args.rd + "/"
-    if not os.path.exists(main_dir):
-        raise IsADirectoryError(f'The directory {main_dir} does not exist.')
+    
     
     for md in args.md:
         print(f"Running debugger for model directory: {md}")
-        model_dir = main_dir + "models/" + md + "/"
+        model_dir = "./models/" + md + "/"
         if not os.path.exists(model_dir):
             raise IsADirectoryError(f'The directory {model_dir} does not exist.')
 
-        data_dir = main_dir + "data/"
-        figure_dir = model_dir + "figures/"
-        if not os.path.exists(figure_dir):
-            os.makedirs(figure_dir)
+        # Initialize necessary objects
 
         config_dict = retrieve_dict_from_json(model_dir + "config.json")
         config = Hyperparameters(**config_dict)
 
-        if config.test_dir is not None:
-            data_dir = "./res/" + config.test_dir + "/data/"
+        data_dir = "./res/" + (config.test_dir if not config.test_dir is None else config.train_dir) + "/data/"
+        if not os.path.exists(data_dir):
+            raise IsADirectoryError(f'The directory {data_dir} does not exist.')
+        
+        figure_dir = model_dir + "figures/"
+        if not os.path.exists(figure_dir):
+            os.makedirs(figure_dir)
+
         test_data = GreenPINNDataset(data_file_path=data_dir, 
-                                     config=config,
-                                     data_file_name="data_test.pt")
+                                    config=config,
+                                    data_file_name="data_test.pt",
+                                    subset_idx=config.test_subset_idx)
         test_inference_utils = StandardizedInferenceUtils(constants=test_data.constants, config=config) if config.multi_mesh_training_variant == "standardize" else InferenceUtils(constants=test_data.constants, config=config)
         global_f_meshes = test_data.f_meshes
         domain = test_data.constants.domain
 
+        test_loss_fn = [torch.nn.MSELoss(), torch.nn.L1Loss()]
+
+        trainer = GreensTrainer(
+                training_data=test_data, test_data=test_data,
+                train_loss_fn=test_loss_fn, test_loss_fn=test_loss_fn,
+                config=config)
+
         show = args.show
 
         model = config.model_cls(**config.model_params)
-        model.load_state_dict(torch.load(model_dir + "model_best_prediction_MSELoss().pth"))
+        model.load_state_dict(torch.load(model_dir + "model_final.pth"))
         model.eval()
 
         global_integration_mesh_size = test_data.constants.integration_mesh_sizes[-1]
